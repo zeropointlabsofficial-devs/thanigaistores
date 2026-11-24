@@ -69,6 +69,12 @@ before(async () => {
     '013_product_selling_quantities.sql',
     '014_stock_batches.sql',
     '016_stock_purchase_units.sql',
+    '017_product_mrp.sql',
+    '018_product_units_boxes_saram.sql',
+    '019_fix_legacy_product_unit_constraint.sql',
+    '020_add_bag_product_unit.sql',
+    '021_add_product_units.sql',
+    '022_hsn_bulk_invoice_support.sql',
   ]) {
     const sql = await readFile(
       path.resolve(__dirname, '../migrations', migration),
@@ -465,6 +471,53 @@ it(
       'SELECT COUNT(*) AS count FROM invoices',
     );
     equal(count.rows[0].count, '7');
+
+    const bulkIntra = await repository.createInvoice('1', {
+      idempotencyKey: randomUUID(),
+      saleStateCode: '33',
+      discountAmount: '0.00',
+      gstAmount: '0.00',
+      invoiceType: 'bulk',
+      customerName: 'Test Business',
+      items: [
+        {
+          productId: pieceId,
+          quantity: '1',
+          hsnCode: 'AB123',
+          gstRate: '5.00',
+        },
+      ],
+      payments: [{ method: 'cash', amount: '2.50' }],
+    });
+    equal(bulkIntra.invoice.invoiceType, 'bulk');
+    equal(bulkIntra.invoice.items[0].hsnCode, 'AB123');
+    equal(bulkIntra.invoice.items[0].gstRate, '5.00');
+    equal(bulkIntra.invoice.items[0].taxableAmount, '2.38');
+    equal(bulkIntra.invoice.totalTax, '0.12');
+    equal(bulkIntra.invoice.cgstAmount, '0.06');
+    equal(bulkIntra.invoice.sgstAmount, '0.06');
+    equal(bulkIntra.invoice.grandTotal, '2.50');
+
+    const bulkInter = await repository.createInvoice('1', {
+      idempotencyKey: randomUUID(),
+      saleStateCode: '29',
+      discountAmount: '0.00',
+      gstAmount: '0.00',
+      invoiceType: 'bulk',
+      customerName: 'Test Business',
+      items: [
+        {
+          productId: pieceId,
+          quantity: '1',
+          hsnCode: 'AB123',
+          gstRate: '5.00',
+        },
+      ],
+      payments: [{ method: 'cash', amount: '2.50' }],
+    });
+    equal(bulkInter.invoice.items[0].igstAmount, '0.12');
+    equal(bulkInter.invoice.cgstAmount, '0.00');
+    equal(bulkInter.invoice.sgstAmount, '0.00');
   },
 );
 

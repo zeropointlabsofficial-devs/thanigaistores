@@ -18,13 +18,14 @@ class _ReceiptPrinterSettingsScreenState
     extends State<ReceiptPrinterSettingsScreen> {
   List<InstalledReceiptPrinter> _printers = [];
   ReceiptPrinterSettings? _settings;
-  String? _selectedUrl;
+  String? _rollSelectedUrl;
+  String? _a4SelectedUrl;
   int _paperWidthMm = ReceiptPrinterSettings.defaultPaperWidthMm;
   double _printableWidthMm = ReceiptPrinterSettings.defaultPrintableWidthMm;
   final TextEditingController _printableWidthController = TextEditingController(
     text: '72.0',
   );
-  bool _a4Invoices = false;
+  String _a4Orientation = 'portrait';
   bool _loading = true;
   bool _saving = false;
   String? _error;
@@ -44,27 +45,25 @@ class _ReceiptPrinterSettingsScreenState
       final settings = await widget.gateway.loadSettings();
       final printers = await widget.gateway.listPrinters();
       if (!mounted) return;
-      final savedPrinterExists = printers.any(
+      final savedRollExists = printers.any(
         (printer) => printer.url == settings?.printerUrl,
       );
-      final defaultPrinter = printers.where((printer) => printer.isDefault);
-      final printerUrl = savedPrinterExists
-          ? settings!.printerUrl
-          : defaultPrinter.isNotEmpty
-          ? defaultPrinter.first.url
-          : printers.isNotEmpty
-          ? printers.first.url
-          : null;
+      final savedA4Exists = printers.any(
+        (printer) => printer.url == settings?.a4PrinterUrl,
+      );
+      final rollPrinterUrl = savedRollExists ? settings!.printerUrl : null;
+      final a4PrinterUrl = savedA4Exists ? settings!.a4PrinterUrl : null;
       setState(() {
         _settings = settings;
         _printers = printers;
-        _selectedUrl = printerUrl;
+        _rollSelectedUrl = rollPrinterUrl;
+        _a4SelectedUrl = a4PrinterUrl;
         _paperWidthMm = settings?.paperWidthMm ?? 80;
         _printableWidthMm =
             settings?.targetPrintableWidthMm ??
             ReceiptPrinterSettings.defaultPrintableWidthMm;
         _printableWidthController.text = _printableWidthMm.toStringAsFixed(1);
-        _a4Invoices = settings?.a4Invoices ?? false;
+        _a4Orientation = settings?.a4Orientation ?? 'portrait';
         _loading = false;
       });
     } on ReceiptPrinterFailure catch (error) {
@@ -98,9 +97,31 @@ class _ReceiptPrinterSettingsScreenState
       );
       return;
     }
-    final selected = _printers.where((printer) => printer.url == _selectedUrl);
-    if (selected.isEmpty) {
-      setState(() => _error = 'Select an installed Windows printer.');
+    final rollSelected = _printers.where(
+      (printer) => printer.url == _rollSelectedUrl,
+    );
+    final a4Selected = _printers.where(
+      (printer) => printer.url == _a4SelectedUrl,
+    );
+    if (rollSelected.isEmpty) {
+      setState(() => _error = 'Select an installed Roll/Thermal printer.');
+      return;
+    }
+    if (a4Selected.isEmpty) {
+      setState(() => _error = 'Select an installed A4 printer.');
+      return;
+    }
+    if (!rollSelected.first.isAvailable) {
+      setState(
+        () => _error =
+            'The selected Roll/Thermal printer is unavailable or offline.',
+      );
+      return;
+    }
+    if (!a4Selected.first.isAvailable) {
+      setState(
+        () => _error = 'The selected A4 printer is unavailable or offline.',
+      );
       return;
     }
     setState(() {
@@ -108,20 +129,24 @@ class _ReceiptPrinterSettingsScreenState
       _error = null;
     });
     try {
-      final printer = selected.first;
+      final rollPrinter = rollSelected.first;
+      final a4Printer = a4Selected.first;
       final settings = ReceiptPrinterSettings(
-        printerName: printer.name,
-        printerUrl: printer.url,
+        printerName: rollPrinter.name,
+        printerUrl: rollPrinter.url,
         paperWidthMm: _paperWidthMm,
         printableWidthMm: printableWidthMm,
-        a4Invoices: _a4Invoices,
+        a4Invoices: true,
+        a4PrinterName: a4Printer.name,
+        a4PrinterUrl: a4Printer.url,
+        a4Orientation: _a4Orientation,
       );
       await widget.gateway.saveSettings(settings);
       if (mounted) {
         setState(() => _settings = settings);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Receipt printer settings saved locally.'),
+            content: Text('Printer settings saved locally.'),
           ),
         );
       }
@@ -191,6 +216,7 @@ class _ReceiptPrinterSettingsScreenState
       final completed = await widget.gateway.printReceipt(
         testInvoice,
         testMode: true,
+        a4Invoice: false,
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -212,11 +238,78 @@ class _ReceiptPrinterSettingsScreenState
     }
   }
 
+  Future<void> _printA4Test() async {
+    const testInvoice = SavedInvoice(
+      invoiceNumber: 'A4-PRINTER-TEST',
+      cashierName: 'Test mode',
+      subtotal: '4660.00',
+      grandTotal: '4660.00',
+      taxableAmount: '4435.72',
+      cgstAmount: '110.89',
+      sgstAmount: '110.89',
+      igstAmount: '0.00',
+      totalTax: '221.78',
+      gstEnabled: true,
+      shopStateCode: '33',
+      saleStateCode: '33',
+      invoiceType: 'bulk',
+      customerName: 'Printer Test Customer',
+      customerAddress: 'Test Address',
+      placeOfSupply: '33-Tamil Nadu',
+      businessName: 'Thanigai Stores',
+      businessAddress: '312, NORTH RAJ STREET TIRUVALLUR',
+      businessPhone: '7200412487',
+      gstin: '33AOPTB5179P1Z4',
+      createdAt: '2026-01-01T12:00:00.000Z',
+      items: [
+        SavedInvoiceItem(
+          productName: 'A4 Printer Test Item',
+          sku: 'TEST-A4',
+          unit: 'piece',
+          unitPrice: '4660.00',
+          quantity: '1',
+          lineTotal: '4660.00',
+          hsnCode: '999999',
+          gstRate: '5.00',
+          taxableAmount: '4435.72',
+          cgstAmount: '110.89',
+          sgstAmount: '110.89',
+        ),
+      ],
+      payments: [InvoicePayment(method: 'cash', amount: '4660.00')],
+      replayed: false,
+    );
+    try {
+      final completed = await widget.gateway.printReceipt(
+        testInvoice,
+        testMode: true,
+        a4Invoice: true,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              completed
+                  ? 'A4 test invoice sent. It is not a sale.'
+                  : 'A4 test print was cancelled.',
+            ),
+          ),
+        );
+      }
+    } on ReceiptPrinterFailure catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Could not send the A4 printer test.');
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Receipt printer settings'),
+        title: const Text('Printer settings'),
         actions: [
           IconButton(
             key: const Key('refreshReceiptPrintersButton'),
@@ -247,10 +340,10 @@ class _ReceiptPrinterSettingsScreenState
                         ),
                         const SizedBox(height: 16),
                         DropdownButtonFormField<String>(
-                          key: const Key('receiptPrinterDropdown'),
-                          initialValue: _selectedUrl,
+                          key: const Key('rollPrinterDropdown'),
+                          initialValue: _rollSelectedUrl,
                           decoration: const InputDecoration(
-                            labelText: 'Windows printer',
+                            labelText: 'Normal Bill Printer',
                             border: OutlineInputBorder(),
                           ),
                           items: _printers
@@ -267,7 +360,8 @@ class _ReceiptPrinterSettingsScreenState
                               .toList(),
                           onChanged: _saving
                               ? null
-                              : (value) => setState(() => _selectedUrl = value),
+                              : (value) =>
+                                    setState(() => _rollSelectedUrl = value),
                         ),
                         if (_printers.isEmpty)
                           const Padding(
@@ -332,24 +426,60 @@ class _ReceiptPrinterSettingsScreenState
                             }
                           },
                         ),
-                        SwitchListTile(
-                          key: const Key('a4InvoicePrintingSwitch'),
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Print invoices on A4 paper'),
-                          subtitle: const Text(
-                            'Off keeps the selected thermal receipt roll format.',
+                        DropdownButtonFormField<String>(
+                          key: const Key('a4PrinterDropdown'),
+                          initialValue: _a4SelectedUrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Bulk Order Printer',
+                            border: OutlineInputBorder(),
                           ),
-                          value: _a4Invoices,
+                          items: _printers
+                              .map(
+                                (printer) => DropdownMenuItem(
+                                  value: printer.url,
+                                  child: Text(
+                                    '${printer.name}'
+                                    '${printer.isDefault ? ' (default)' : ''}'
+                                    '${printer.isAvailable ? '' : ' (offline/unavailable)'}',
+                                  ),
+                                ),
+                              )
+                              .toList(),
                           onChanged: _saving
                               ? null
-                              : (value) => setState(() => _a4Invoices = value),
+                              : (value) =>
+                                    setState(() => _a4SelectedUrl = value),
+                        ),
+                        const SizedBox(height: 16),
+                        DropdownButtonFormField<String>(
+                          key: const Key('a4OrientationDropdown'),
+                          initialValue: _a4Orientation,
+                          decoration: const InputDecoration(
+                            labelText: 'A4 Paper Orientation',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'portrait',
+                              child: Text('A4 Portrait'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'landscape',
+                              child: Text('A4 Landscape'),
+                            ),
+                          ],
+                          onChanged: _saving
+                              ? null
+                              : (value) => setState(
+                                  () => _a4Orientation = value ?? 'portrait',
+                                ),
                         ),
                         const SizedBox(height: 8),
                         Text(
                           _settings == null
                               ? 'Settings are stored on this Windows PC.'
-                              : 'Selected: ${_settings!.printerName}, '
-                                    '${_settings!.a4Invoices ? 'A4 invoices' : '${_settings!.paperWidthMm} mm roll / ${_settings!.targetPrintableWidthMm.toStringAsFixed(1)} mm printable target'}.',
+                              : 'Roll: ${_settings!.printerName} (${_settings!.paperWidthMm} mm / ${_settings!.targetPrintableWidthMm.toStringAsFixed(1)} mm target).\n'
+                                    'A4: ${_settings!.a4PrinterName ?? 'Not selected'} (${_settings!.a4Orientation}).',
                         ),
                         const SizedBox(height: 16),
                         if (_error != null) ...[
@@ -378,7 +508,16 @@ class _ReceiptPrinterSettingsScreenState
                               ? null
                               : _printTest,
                           icon: const Icon(Icons.print_outlined),
-                          label: const Text('Print test receipt'),
+                          label: const Text('Test Normal Bill Printer'),
+                        ),
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          key: const Key('printTestA4InvoiceButton'),
+                          onPressed: _saving || _settings == null
+                              ? null
+                              : _printA4Test,
+                          icon: const Icon(Icons.print_outlined),
+                          label: const Text('Test Bulk Order Printer'),
                         ),
                       ],
                     ),

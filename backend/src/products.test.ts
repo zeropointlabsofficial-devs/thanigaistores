@@ -415,8 +415,15 @@ describe('product API', () => {
     equal(updated.body.product.lowStockThreshold, undefined);
   });
 
-  it('accepts boxes and saram as product selling units', async () => {
-    for (const [index, unit] of ['boxes', 'saram'].entries()) {
+  it('accepts all supported product selling units', async () => {
+    for (const [index, unit] of [
+      'boxes',
+      'box',
+      'bottle',
+      'pai',
+      'saram',
+      'Bag',
+    ].entries()) {
       const created = await request(app)
         .post('/products')
         .set('Authorization', 'Bearer ' + adminToken)
@@ -484,7 +491,7 @@ describe('product API', () => {
     await request(app)
       .post('/products')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ ...validProduct, unit: 'box' })
+      .send({ ...validProduct, unit: 'invalid' })
       .expect(400);
     await request(app)
       .get('/products/not-an-id')

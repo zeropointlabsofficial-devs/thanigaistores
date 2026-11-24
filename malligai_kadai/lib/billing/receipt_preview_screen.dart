@@ -13,10 +13,14 @@ class ReceiptPreviewScreen extends StatefulWidget {
     super.key,
     required this.invoice,
     required this.printerGateway,
+    this.a4Invoice = false,
+    this.a4Preview = false,
   });
 
   final SavedInvoice invoice;
   final ReceiptPrinterGateway printerGateway;
+  final bool a4Invoice;
+  final bool a4Preview;
 
   @override
   State<ReceiptPreviewScreen> createState() => _ReceiptPreviewScreenState();
@@ -34,7 +38,7 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
     try {
       final completed = await widget.printerGateway.printReceipt(
         widget.invoice,
-        a4Invoice: false,
+        a4Invoice: widget.a4Invoice,
         onPrintNotice: (notice) => printNotice = notice,
       );
       if (!mounted) return;
@@ -73,6 +77,8 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
         widget.invoice,
         paperWidthMm: paperWidthMm,
         printableWidthMm: printableWidthMm,
+        a4Invoice: widget.a4Invoice,
+        a4Preview: widget.a4Preview,
       );
       await XFile.fromData(
         bytes,
@@ -120,6 +126,11 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
                 snapshot.data?.targetPrintableWidthMm ??
                 ReceiptPrinterSettings.defaultPrintableWidthMm;
             final loading = snapshot.connectionState == ConnectionState.waiting;
+            final useA4Preview = widget.a4Invoice || widget.a4Preview;
+            final a4Format =
+                widget.a4Invoice && snapshot.data?.a4Orientation == 'landscape'
+                ? PdfPageFormat.a4.landscape
+                : PdfPageFormat.a4;
             return Column(
               children: [
                 Padding(
@@ -138,7 +149,9 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
                       OutlinedButton(
                         key: const Key('printReceiptButton'),
                         onPressed: snapshot.hasError || loading ? null : _print,
-                        child: const Text('Print bill'),
+                        child: Text(
+                          widget.a4Invoice ? 'Print A4 invoice' : 'Print bill',
+                        ),
                       ),
                       const SizedBox(width: 8),
                       OutlinedButton(
@@ -165,13 +178,22 @@ class _ReceiptPreviewScreenState extends State<ReceiptPreviewScreen> {
                             widget.invoice,
                             paperWidthMm: paperWidthMm,
                             printableWidthMm: printableWidthMm,
+                            a4Invoice: widget.a4Invoice,
+                            a4Preview: widget.a4Preview,
                           ),
-                          initialPageFormat: _receiptFormat(paperWidthMm),
-                          pageFormats: {
-                            '$paperWidthMm mm roll / '
-                                    '${printableWidthMm.toStringAsFixed(1)} mm target':
-                                _receiptFormat(paperWidthMm),
-                          },
+                          initialPageFormat: useA4Preview
+                              ? a4Format
+                              : _receiptFormat(paperWidthMm),
+                          pageFormats: useA4Preview
+                              ? {
+                                  'A4 ${snapshot.data?.a4Orientation ?? 'portrait'}':
+                                      a4Format,
+                                }
+                              : {
+                                  '$paperWidthMm mm roll / '
+                                          '${printableWidthMm.toStringAsFixed(1)} mm target':
+                                      _receiptFormat(paperWidthMm),
+                                },
                           maxPageWidth: 320,
                           previewPageMargin: const EdgeInsets.symmetric(
                             horizontal: 24,

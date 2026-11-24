@@ -324,37 +324,48 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     setState(() {
       _isLoading = true;
       _restoreError = null;
-      _loadingMessage = 'Checking your sign-in...';
+      _loadingMessage = 'Opening the secure login...';
     });
 
-    try {
-      final token = await _authGateway.readToken();
-      if (token == null || token.isEmpty) {
-        _savedToken = null;
-        _user = null;
-      } else {
-        _savedToken = token;
-        try {
-          _user = await _authGateway.currentUser(token);
-          _scheduleSessionRefresh();
-        } on AuthFailure catch (error) {
-          if (error.statusCode == 401) {
-            await _authGateway.clearToken();
-            _savedToken = null;
-            _user = null;
-          } else {
-            rethrow;
+    final alwaysLogin = _authGateway is HttpAuthGateway;
+    if (alwaysLogin) {
+      try {
+        await _authGateway.clearToken();
+      } catch (_) {
+        _restoreError = 'Could not clear the previous sign-in. Please restart and try again.';
+      }
+      _savedToken = null;
+      _user = null;
+    } else {
+      try {
+        final token = await _authGateway.readToken();
+        if (token == null || token.isEmpty) {
+          _savedToken = null;
+          _user = null;
+        } else {
+          _savedToken = token;
+          try {
+            _user = await _authGateway.currentUser(token);
+            _scheduleSessionRefresh();
+          } on AuthFailure catch (error) {
+            if (error.statusCode == 401) {
+              await _authGateway.clearToken();
+              _savedToken = null;
+              _user = null;
+            } else {
+              rethrow;
+            }
           }
         }
+      } on AuthFailure catch (error) {
+        _restoreError = error.message;
+      } catch (_) {
+        _restoreError =
+            'Could not restore the saved sign-in. Please try again.';
       }
-    } on AuthFailure catch (error) {
-      _restoreError = error.message;
-    } catch (_) {
-      _restoreError = 'Could not restore the saved sign-in. Please try again.';
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+    }
+    if (mounted) {
+      setState(() => _isLoading = false);
     }
   }
 

@@ -83,6 +83,17 @@ export function validateProductInput(body: Record<string, unknown>): ProductInpu
       ? null
       : decimal(body.mrp, 'MRP', 2, 0, 9999999999.99);
 
+  const hsnCode =
+    typeof body.hsnCode === 'string'
+      ? body.hsnCode.trim().toUpperCase()
+      : '';
+  if (hsnCode.length > 20 || !/^[A-Z0-9]*$/.test(hsnCode)) {
+    throw new HttpError(
+      400,
+      'HSN Code must contain only letters or digits and be 20 characters or fewer.',
+    );
+  }
+
   const sku =
     typeof body.sku === 'string' && body.sku.trim()
       ? requiredText(body.sku, 'Product code', 64)
@@ -98,6 +109,7 @@ export function validateProductInput(body: Record<string, unknown>): ProductInpu
     mrp,
     sellingQuantity,
     openingStockQuantity,
+    hsnCode,
     gstRate,
   };
 }

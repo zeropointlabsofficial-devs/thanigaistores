@@ -14,7 +14,7 @@ void main() {
     () async {
       const settings = LocalBackendSettings(
         host: '127.0.0.1',
-        port: 55432,
+        port: 55433,
         database: 'thanigai_stores',
         username: 'thanigai_app',
         password: 'generated-database-password',
@@ -210,7 +210,7 @@ void main() {
   test('persists and supplies the initial setup token to the backend', () {
     const settings = LocalBackendSettings(
       host: '127.0.0.1',
-      port: 55432,
+      port: 55433,
       database: 'thanigai_stores',
       username: 'thanigai_app',
       password: 'database-password',

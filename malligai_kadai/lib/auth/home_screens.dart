@@ -7,6 +7,7 @@ import 'auth_gateway.dart';
 import '../billing/billing_gateway.dart';
 import '../billing/invoice_history_screen.dart';
 import '../billing/receipt_printer.dart';
+import '../billing/receipt_printer_settings_screen.dart';
 import '../billing/gst_settings_screen.dart';
 import '../billing/billing_screen.dart';
 import '../products/product_gateway.dart';
@@ -328,6 +329,15 @@ class _RoleHomeScreenState extends State<_RoleHomeScreen> {
     );
   }
 
+  Future<void> _openReceiptPrinterSettings() {
+    return Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            ReceiptPrinterSettingsScreen(gateway: _receiptPrinterGateway),
+      ),
+    );
+  }
+
   List<_PosNavigationItem> get _navigationItems => [
     _PosNavigationItem(
       label: 'Dashboard',
@@ -376,6 +386,12 @@ class _RoleHomeScreenState extends State<_RoleHomeScreen> {
         icon: Icons.percent_rounded,
         key: const Key('openSettingsButton'),
         onPressed: _openGstSettings,
+      ),
+      _PosNavigationItem(
+        label: 'Printer Settings',
+        icon: Icons.print_outlined,
+        key: const Key('openReceiptPrinterSettingsButton'),
+        onPressed: _openReceiptPrinterSettings,
       ),
       if (widget.onCreateCashier != null)
         _PosNavigationItem(

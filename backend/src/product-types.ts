@@ -6,7 +6,13 @@ export const productUnits = [
   'piece',
   'packet',
   'boxes',
+  'box',
+  'bottle',
+  'pai',
+  'Can',
+  'Bundle',
   'saram',
+  'Bag',
 ] as const;
 
 export type ProductUnit = (typeof productUnits)[number];
@@ -23,6 +29,7 @@ export interface Product {
   sellingQuantity: string;
   openingStockQuantity?: string;
   stockQuantity?: string;
+  hsnCode?: string;
   gstRate: string;
   createdAt: string;
   updatedAt: string;
@@ -38,6 +45,7 @@ export interface ProductInput {
   mrp?: string | null;
   sellingQuantity: string;
   openingStockQuantity?: string;
+  hsnCode?: string;
   gstRate: string;
 }
 

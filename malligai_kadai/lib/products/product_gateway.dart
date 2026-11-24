@@ -15,7 +15,13 @@ const productUnits = [
   'packet',
   'piece',
   'boxes',
+  'box',
+  'bottle',
+  'pai',
+  'Can',
+  'Bundle',
   'saram',
+  'Bag',
 ];
 
 String displayProductUnit(String unit) => unit == 'g' ? 'gm' : unit;
@@ -40,6 +46,7 @@ class ProductItem {
     this.sellingQuantity = '1.000',
     this.openingStockQuantity = '0.000',
     this.stockQuantity = '0.000',
+    this.hsnCode = '',
     required this.gstRate,
   });
 
@@ -54,6 +61,7 @@ class ProductItem {
   final String sellingQuantity;
   final String openingStockQuantity;
   final String stockQuantity;
+  final String hsnCode;
   final String gstRate;
 
   factory ProductItem.fromJson(Object? json) {
@@ -89,6 +97,7 @@ class ProductItem {
       stockQuantity: json['stockQuantity'] == null
           ? '0.000'
           : text('stockQuantity'),
+      hsnCode: json['hsnCode']?.toString() ?? '',
       gstRate: text('gstRate'),
     );
   }
@@ -105,6 +114,7 @@ class ProductDraft {
     this.mrp,
     this.sellingQuantity = '1.000',
     this.openingStockQuantity = '0.000',
+    this.hsnCode = '',
     required this.gstRate,
   });
 
@@ -117,6 +127,7 @@ class ProductDraft {
   final String? mrp;
   final String sellingQuantity;
   final String openingStockQuantity;
+  final String hsnCode;
   final String gstRate;
 
   Map<String, Object?> toJson() => {
@@ -129,6 +140,7 @@ class ProductDraft {
     'mrp': mrp?.trim().isEmpty == true ? null : mrp?.trim(),
     'sellingQuantity': sellingQuantity.trim(),
     'openingStockQuantity': openingStockQuantity.trim(),
+    'hsnCode': hsnCode.trim(),
     'gstRate': gstRate.trim(),
   };
 }

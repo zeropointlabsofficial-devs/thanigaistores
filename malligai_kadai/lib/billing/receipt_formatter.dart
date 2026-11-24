@@ -110,40 +110,76 @@ class ReceiptFormatter {
         'Invoice No: ${invoice.invoiceNumber}',
         'Date: ${_formatDate(invoice.createdAt)}',
       );
+      if (invoice.invoiceType == 'bulk') {
+        pair('Bill To: ${invoice.customerName}', '');
+        if (invoice.customerAddress.isNotEmpty) {
+          pair('Customer Address: ${invoice.customerAddress}', '');
+        }
+        if (invoice.customerGstin.isNotEmpty) {
+          pair('Customer GSTIN: ${invoice.customerGstin}', '');
+        }
+        if (invoice.placeOfSupply.isNotEmpty) {
+          pair('Place of Supply: ${invoice.placeOfSupply}', '');
+        }
+      }
       pair('Cashier: ${invoice.cashierName}', '');
       if (invoice.gstin.isNotEmpty) pair('GSTIN: ${invoice.gstin}', '');
       divider();
 
-      const itemWidth = 42;
-      const detailsWidth = 30;
-      const amountWidth = a4Columns - itemWidth - detailsWidth;
+      const snoWidth = 4;
+      const hsnWidth = 10;
+      const itemWidth = 20;
+      const quantityWidth = 8;
+      const unitWidth = 7;
+      const rateWidth = 9;
+      const gstRateWidth = 7;
+      const gstAmountWidth = 8;
       lines.add(
-        'Item'.padRight(itemWidth) +
-            'Qty / Unit Price'.padRight(detailsWidth) +
-            'Amount'.padLeft(amountWidth),
+        'S.No'.padRight(snoWidth) +
+            'HSN/SAC'.padRight(hsnWidth) +
+            'Item'.padRight(itemWidth) +
+            'Qty'.padRight(quantityWidth) +
+            'Unit'.padRight(unitWidth) +
+            'Net Rate'.padRight(rateWidth) +
+            'GST %'.padRight(gstRateWidth) +
+            'GST Amt'.padRight(gstAmountWidth) +
+            'Total'.padLeft(7),
       );
       divider();
-      for (final item in invoice.items) {
+      for (var index = 0; index < invoice.items.length; index++) {
+        final item = invoice.items[index];
+        final serial = '${index + 1}'.padRight(snoWidth);
+        final hsn = item.hsnCode.padRight(hsnWidth);
         final names = _wrap(item.productName, itemWidth);
-        final details = _wrap(
-          '${item.quantity} ${displayProductUnit(item.unit)} x ${_formatUnitPrice(item.unitPrice)}',
-          detailsWidth,
-        );
-        final amounts = _wrap('₹${item.lineTotal}', amountWidth);
-        final rowCount = [
-          names.length,
-          details.length,
-          amounts.length,
-        ].reduce((left, right) => left > right ? left : right);
+        final quantity = _displayQuantity(item.quantity)
+            .padRight(quantityWidth);
+        final unit = displayProductUnit(item.unit).padRight(unitWidth);
+        final rate = _formatUnitPrice(item.unitPrice).padRight(rateWidth);
+        final gstRate = '${item.gstRate}%'.padRight(gstRateWidth);
+        final gstAmount =
+            (item.igstAmount != '0.00'
+                    ? item.igstAmount
+                    : (() {
+                        final cents =
+                            _toCents(item.cgstAmount) +
+                            _toCents(item.sgstAmount);
+                        return '${cents ~/ 100}.${(cents % 100).toString().padLeft(2, '0')}';
+                      })())
+                .padRight(gstAmountWidth);
+        final total = _formatMoney(item.lineTotal).padLeft(7);
+        final rowCount = names.length;
         for (var index = 0; index < rowCount; index++) {
           final name = index < names.length ? names[index] : '';
-          final detail = index < details.length ? details[index] : '';
           lines.add(
-            name.padRight(itemWidth) +
-                detail.padRight(detailsWidth) +
-                (index < amounts.length ? amounts[index] : '').padLeft(
-                  amountWidth,
-                ),
+            serial +
+                hsn +
+                name.padRight(itemWidth) +
+                (index == 0 ? quantity : ''.padRight(quantityWidth)) +
+                (index == 0 ? unit : ''.padRight(unitWidth)) +
+                (index == 0 ? rate : ''.padRight(rateWidth)) +
+                (index == 0 ? gstRate : ''.padRight(gstRateWidth)) +
+                (index == 0 ? gstAmount : ''.padRight(gstAmountWidth)) +
+                (index == 0 ? total : ''.padLeft(7)),
           );
         }
       }
@@ -184,6 +220,15 @@ class ReceiptFormatter {
     if (a4Layout) {
       pair('Discount', _formatMoney(invoice.discountAmount));
       pair('Amount after discount', '₹${_amountAfterDiscount(invoice)}');
+      if (invoice.cgstAmount != '0.00') {
+        pair('CGST', _formatMoney(invoice.cgstAmount));
+      }
+      if (invoice.sgstAmount != '0.00') {
+        pair('SGST', _formatMoney(invoice.sgstAmount));
+      }
+      if (invoice.igstAmount != '0.00') {
+        pair('IGST', _formatMoney(invoice.igstAmount));
+      }
       pair(
         'GST',
         invoice.gstEnabled ? _formatMoney(invoice.totalTax) : 'Disabled',

@@ -363,6 +363,11 @@ class HttpAuthGateway implements AuthGateway, StockGateway {
     String discountAmount = '0.00',
     String gstAmount = '0.00',
     required List<InvoicePayment> payments,
+    String invoiceType = 'retail',
+    String customerName = '',
+    String customerAddress = '',
+    String customerGstin = '',
+    String placeOfSupply = '',
   }) {
     return _billing.createInvoice(
       idempotencyKey: idempotencyKey,
@@ -371,6 +376,11 @@ class HttpAuthGateway implements AuthGateway, StockGateway {
       discountAmount: discountAmount,
       gstAmount: gstAmount,
       payments: payments,
+      invoiceType: invoiceType,
+      customerName: customerName,
+      customerAddress: customerAddress,
+      customerGstin: customerGstin,
+      placeOfSupply: placeOfSupply,
     );
   }
 

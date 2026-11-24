@@ -12,17 +12,26 @@ class InvoiceCartItem {
     required this.productId,
     required this.quantity,
     required this.unitPrice,
+    this.hsnCode,
+    this.gstRate,
   });
 
   final String productId;
   final String quantity;
   final String unitPrice;
+  final String? hsnCode;
+  final String? gstRate;
 
-  Map<String, String> toJson() => {
-    'productId': productId,
-    'quantity': quantity,
-    'unitPrice': unitPrice,
-  };
+  Map<String, String> toJson() {
+    final json = {
+      'productId': productId,
+      'quantity': quantity,
+      'unitPrice': unitPrice,
+    };
+    if (hsnCode != null) json['hsnCode'] = hsnCode!;
+    if (gstRate != null) json['gstRate'] = gstRate!;
+    return json;
+  }
 }
 
 class InvoicePayment {
@@ -107,6 +116,7 @@ class SavedInvoiceItem {
     this.cgstAmount = '0.00',
     this.sgstAmount = '0.00',
     this.igstAmount = '0.00',
+    this.hsnCode = '',
   });
 
   final String productName;
@@ -120,6 +130,7 @@ class SavedInvoiceItem {
   final String cgstAmount;
   final String sgstAmount;
   final String igstAmount;
+  final String hsnCode;
 
   factory SavedInvoiceItem.fromJson(Object? value) {
     if (value is! Map<String, dynamic>) {
@@ -145,6 +156,7 @@ class SavedInvoiceItem {
       cgstAmount: value['cgstAmount']?.toString() ?? '0.00',
       sgstAmount: value['sgstAmount']?.toString() ?? '0.00',
       igstAmount: value['igstAmount']?.toString() ?? '0.00',
+      hsnCode: value['hsnCode']?.toString() ?? '',
     );
   }
 }
@@ -174,6 +186,11 @@ class SavedInvoice {
     this.businessAddress = '',
     this.businessPhone = '',
     this.gstin = '',
+    this.invoiceType = 'retail',
+    this.customerName = '',
+    this.customerAddress = '',
+    this.customerGstin = '',
+    this.placeOfSupply = '',
   });
 
   final String id;
@@ -199,6 +216,11 @@ class SavedInvoice {
   final String businessAddress;
   final String businessPhone;
   final String gstin;
+  final String invoiceType;
+  final String customerName;
+  final String customerAddress;
+  final String customerGstin;
+  final String placeOfSupply;
 
   factory SavedInvoice.fromJson(Object? value, {required bool replayed}) {
     if (value is! Map<String, dynamic> || value['items'] is! List) {
@@ -241,6 +263,11 @@ class SavedInvoice {
       businessAddress: value['businessAddress']?.toString() ?? '',
       businessPhone: value['businessPhone']?.toString() ?? '',
       gstin: value['gstin']?.toString() ?? '',
+      invoiceType: value['invoiceType']?.toString() ?? 'retail',
+      customerName: value['customerName']?.toString() ?? '',
+      customerAddress: value['customerAddress']?.toString() ?? '',
+      customerGstin: value['customerGstin']?.toString() ?? '',
+      placeOfSupply: value['placeOfSupply']?.toString() ?? '',
     );
   }
 }
@@ -274,6 +301,11 @@ abstract interface class BillingGateway {
     String discountAmount = '0.00',
     String gstAmount = '0.00',
     required List<InvoicePayment> payments,
+    String invoiceType = 'retail',
+    String customerName = '',
+    String customerAddress = '',
+    String customerGstin = '',
+    String placeOfSupply = '',
   });
   Future<List<SavedInvoice>> listInvoices({int limit = 50});
   Future<SavedInvoice> findInvoiceById(String id);
@@ -368,6 +400,11 @@ class HttpBillingGateway implements BillingGateway {
     String discountAmount = '0.00',
     String gstAmount = '0.00',
     required List<InvoicePayment> payments,
+    String invoiceType = 'retail',
+    String customerName = '',
+    String customerAddress = '',
+    String customerGstin = '',
+    String placeOfSupply = '',
   }) async {
     final token = await _readToken();
     final body = await _sendJson(
@@ -384,6 +421,11 @@ class HttpBillingGateway implements BillingGateway {
           'discountAmount': discountAmount,
           'gstAmount': gstAmount,
           'payments': payments.map((payment) => payment.toJson()).toList(),
+          'invoiceType': invoiceType,
+          'customerName': customerName,
+          'customerAddress': customerAddress,
+          'customerGstin': customerGstin,
+          'placeOfSupply': placeOfSupply,
         }),
       ),
     );

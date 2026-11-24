@@ -5,13 +5,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:malligai_kadai/billing/billing_gateway.dart';
 import 'package:malligai_kadai/billing/billing_screen.dart';
+import 'package:malligai_kadai/billing/bulk_order_screen.dart';
 import 'package:malligai_kadai/billing/receipt_printer.dart';
 import 'package:malligai_kadai/billing/receipt_preview_screen.dart';
 import 'package:malligai_kadai/billing/invoice_history_screen.dart';
 import 'package:malligai_kadai/auth/auth_gate.dart';
 import 'package:malligai_kadai/auth/auth_gateway.dart';
+import 'package:malligai_kadai/auth/home_screens.dart';
 import 'package:malligai_kadai/auth/login_screen.dart';
 import 'package:malligai_kadai/auth/local_backend_supervisor.dart';
 import 'package:malligai_kadai/main.dart';
@@ -177,6 +180,11 @@ class FakeAuthGateway implements AuthGateway {
     String discountAmount = '0.00',
     String gstAmount = '0.00',
     required List<InvoicePayment> payments,
+    String invoiceType = 'retail',
+    String customerName = '',
+    String customerAddress = '',
+    String customerGstin = '',
+    String placeOfSupply = '',
   }) async {
     lastInvoiceKey = idempotencyKey;
     lastInvoiceItems = items;
@@ -371,6 +379,8 @@ class _FailingStartupSupervisor extends LocalBackendSupervisor {
 class FakeReceiptPrinterGateway implements ReceiptPrinterGateway {
   ReceiptPrinterSettings? printerSettings;
   final printedInvoices = <String>[];
+  final printModes = <bool?>[];
+  final builtPdfPreviewModes = <bool>[];
   final builtPdfFormats =
       <({int widthMm, double printableWidthMm, bool isA4})>[];
 
@@ -381,7 +391,9 @@ class FakeReceiptPrinterGateway implements ReceiptPrinterGateway {
     double? printableWidthMm,
     bool testMode = false,
     bool a4Invoice = false,
+    bool a4Preview = false,
   }) async {
+    builtPdfPreviewModes.add(a4Preview);
     builtPdfFormats.add((
       widthMm: paperWidthMm,
       printableWidthMm: printableWidthMm ?? (paperWidthMm - 8).toDouble(),
@@ -407,11 +419,69 @@ class FakeReceiptPrinterGateway implements ReceiptPrinterGateway {
     void Function(String notice)? onPrintNotice,
   }) async {
     printedInvoices.add(invoice.id);
+    printModes.add(a4Invoice);
     return true;
   }
 }
 
+class _MemoryPrinterPreferences implements SharedPreferencesAsync {
+  final Map<String, Object> _values = {};
+
+  @override
+  Future<String?> getString(String key) async => _values[key] as String?;
+
+  @override
+  Future<int?> getInt(String key) async => _values[key] as int?;
+
+  @override
+  Future<double?> getDouble(String key) async => _values[key] as double?;
+
+  @override
+  Future<bool?> getBool(String key) async => _values[key] as bool?;
+
+  @override
+  Future<void> setString(String key, String value) async {
+    _values[key] = value;
+  }
+
+  @override
+  Future<void> setInt(String key, int value) async {
+    _values[key] = value;
+  }
+
+  @override
+  Future<void> setDouble(String key, double value) async {
+    _values[key] = value;
+  }
+
+  @override
+  Future<void> setBool(String key, bool value) async {
+    _values[key] = value;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
+  test('serializes bulk-specific HSN and GST overrides', () {
+    const item = InvoiceCartItem(
+      productId: '10',
+      quantity: '2',
+      unitPrice: '25.00',
+      hsnCode: 'AB123',
+      gstRate: '5.50',
+    );
+
+    expect(item.toJson(), {
+      'productId': '10',
+      'quantity': '2',
+      'unitPrice': '25.00',
+      'hsnCode': 'AB123',
+      'gstRate': '5.50',
+    });
+  });
+
   testWidgets(
     'saved invoice history previews before printing and confirms safe void',
     (tester) async {
@@ -423,6 +493,7 @@ void main() {
         subtotal: '25.00',
         grandTotal: '25.00',
         createdAt: '2026-10-19T12:00:00.000Z',
+        invoiceType: 'bulk',
         items: [],
         replayed: false,
       );
@@ -437,7 +508,8 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
 
       expect(find.byKey(const Key('previewInvoice-42')), findsNothing);
       expect(find.byKey(const Key('printInvoice-42')), findsNothing);
@@ -448,12 +520,20 @@ void main() {
       expect(find.byKey(const Key('receiptPreviewDialog')), findsOneWidget);
       expect(find.byKey(const Key('printReceiptButton')), findsOneWidget);
       expect(
+        tester
+            .widget<PdfPreview>(find.byKey(const Key('receiptPdfPreview')))
+            .initialPageFormat!
+            .width,
+        closeTo(PdfPageFormat.a4.width, 0.01),
+      );
+      expect(
         find.byKey(const Key('closeReceiptPreviewButton')),
         findsOneWidget,
       );
       expect(printer.printedInvoices, isEmpty);
       await tester.tap(find.byKey(const Key('closeReceiptPreviewButton')));
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
       expect(printer.printedInvoices, isEmpty);
 
       await tester.tap(find.byKey(const Key('printAgainInvoice-42')));
@@ -468,6 +548,7 @@ void main() {
       await tester.tap(find.byKey(const Key('printReceiptButton')));
       await tester.pump();
       expect(printer.printedInvoices, ['42']);
+      expect(printer.printModes, [true]);
       expect(
         billing.savedInvoices.values.single.invoiceNumber,
         'INV-TEST-0042',
@@ -834,6 +915,8 @@ void main() {
       find.byKey(const Key('productNameField')),
       'Basmati Rice',
     );
+    expect(find.byKey(const Key('productHsnCodeField')), findsNothing);
+    expect(find.byKey(const Key('productGstRateField')), findsNothing);
     expect(find.byKey(const Key('productSkuField')), findsNothing);
     expect(find.byKey(const Key('productCategoryField')), findsNothing);
     expect(find.byKey(const Key('productPurchasePriceField')), findsOneWidget);
@@ -911,6 +994,63 @@ void main() {
     expect(find.byKey(const Key('addProductButton')), findsOneWidget);
     expect(find.byKey(const Key('deleteProductButton')), findsOneWidget);
     expect(find.byKey(const Key('exportProductsXlsxButton')), findsOneWidget);
+  });
+
+  testWidgets('Admin can add and view a product with the Bag selling unit', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final gateway = FakeAuthGateway(
+      initialUser: const AuthUser(
+        id: '1',
+        username: 'owner',
+        role: UserRole.admin,
+      ),
+    );
+    await tester.pumpWidget(MalligaiKadaiApp(authGateway: gateway));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('openProductsButton')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('addProductButton')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('productNameField')),
+      'Rice Bag',
+    );
+    await tester.tap(find.byKey(const Key('productUnitField')));
+    await tester.pumpAndSettle();
+    expect(find.text('bottle'), findsOneWidget);
+    expect(find.text('box'), findsOneWidget);
+    expect(find.text('pai'), findsOneWidget);
+    await tester.tap(find.text('Bag').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('productQuantityField')), '4');
+    await tester.enterText(
+      find.byKey(const Key('productSellingPriceField')),
+      '5',
+    );
+    await tester.tap(find.byKey(const Key('saveProductButton')));
+    await tester.pumpAndSettle();
+
+    expect(gateway.productItems.single.unit, 'Bag');
+    expect(find.text('Sell ₹5 / 4 Bag'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('openBillingButton')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('addToCart-10')));
+    await tester.pumpAndSettle();
+    expect(find.text('Enter Rice Bag quantity'), findsNothing);
+    await tester.tap(find.byKey(const Key('saveInvoiceButton')));
+    await tester.pumpAndSettle();
+
+    expect(gateway.lastInvoiceItems.single.quantity, '4.000');
+    expect(gateway.savedInvoices.values.single.items.single.unit, 'Bag');
   });
 
   testWidgets('Admin can soft-delete a product from the product list', (
@@ -1103,23 +1243,8 @@ void main() {
     expect(find.text('Red Apple'), findsOneWidget);
     await tester.tap(find.byKey(const Key('addToCart-31')));
     await tester.pumpAndSettle();
-    expect(
-      tester
-          .widget<DropdownButtonFormField<String>>(
-            find.byKey(const Key('newQuantityUnit-31')),
-          )
-          .initialValue,
-      'kg',
-    );
-    expect(
-      tester
-          .widget<TextField>(find.byKey(const Key('newQuantityInput-31')))
-          .controller!
-          .text,
-      '1',
-    );
-    await tester.enterText(find.byKey(const Key('newQuantityInput-31')), '0.1');
-    await tester.tap(find.byKey(const Key('confirmProductQuantity-31')));
+    expect(find.text('Enter Red Apple quantity'), findsNothing);
+    await tester.enterText(find.byKey(const Key('quantityInput-31-kg')), '0.1');
     await tester.pumpAndSettle();
     expect(find.text('₹2.50 / 1 kg'), findsOneWidget);
     expect(find.byKey(const Key('quantityInput-31-kg')), findsOneWidget);
@@ -1218,9 +1343,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('addToCart-90')));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const Key('newQuantityInput-90')), '1');
-    await tester.tap(find.byKey(const Key('confirmProductQuantity-90')));
-    await tester.pumpAndSettle();
+    expect(find.text('Enter Tea quantity'), findsNothing);
+    expect(find.byKey(const Key('quantityInput-90-piece')), findsOneWidget);
     await tester.tap(find.byKey(const Key('saveInvoiceButton')));
     await tester.pumpAndSettle();
 
@@ -1243,6 +1367,145 @@ void main() {
     await tester.pump();
     expect(printer.printedInvoices, ['1']);
     expect(billing.savedInvoices, hasLength(1));
+  });
+
+  testWidgets('billing opens dedicated bulk order mode', (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final gateway = FakeAuthGateway(
+      initialUser: const AuthUser(
+        id: '2',
+        username: 'till',
+        role: UserRole.cashier,
+      ),
+    );
+    await tester.pumpWidget(MalligaiKadaiApp(authGateway: gateway));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('openBillingButton')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bulkOrderButton')));
+    await tester.pumpAndSettle();
+    expect(find.text('Bulk Order'), findsOneWidget);
+    expect(
+      find.byKey(const Key('printBulkOrderInvoiceButton')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('bulk order configures HSN and GST per item and totals GST', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final gateway = FakeAuthGateway()..gstEnabled = true;
+    gateway.productItems.addAll([
+      const ProductItem(
+        id: '501',
+        name: 'Item Five Percent',
+        sku: '',
+        category: 'General',
+        unit: 'piece',
+        sellingPrice: '1.00',
+        sellingQuantity: '1.000',
+        gstRate: '0.00',
+      ),
+      const ProductItem(
+        id: '502',
+        name: 'Item Eighteen Percent',
+        sku: '',
+        category: 'General',
+        unit: 'kg',
+        sellingPrice: '1.00',
+        sellingQuantity: '1.000',
+        gstRate: '0.00',
+      ),
+    ]);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BulkOrderScreen(
+          productGateway: gateway,
+          billingGateway: gateway,
+          receiptPrinterGateway: FakeReceiptPrinterGateway(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bulkAdd-501')));
+    await tester.tap(find.byKey(const Key('bulkAdd-502')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Quantity'), findsNWidgets(2));
+    expect(find.text('Price'), findsNWidgets(2));
+    await tester.enterText(find.byKey(const Key('bulkHsnCode-501')), '1001');
+    await tester.enterText(find.byKey(const Key('bulkGstRate-501')), '5');
+    await tester.enterText(find.byKey(const Key('bulkHsnCode-502')), '2002');
+    await tester.enterText(find.byKey(const Key('bulkGstRate-502')), '18');
+    await tester.pumpAndSettle();
+
+    expect(find.text('GST: ₹0.23'), findsOneWidget);
+    expect(find.text('CGST: ₹0.12'), findsOneWidget);
+    expect(find.text('SGST: ₹0.11'), findsOneWidget);
+    expect(find.text('Grand Total: ₹2.23'), findsOneWidget);
+  });
+
+  testWidgets('billing quantity plus and minus controls update the cart', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final gateway = FakeAuthGateway(
+      initialUser: const AuthUser(
+        id: '2',
+        username: 'till',
+        role: UserRole.cashier,
+      ),
+    );
+    gateway.productItems.add(
+      const ProductItem(
+        id: '44',
+        name: '3 Roses',
+        sku: '',
+        category: 'General',
+        unit: 'g',
+        sellingPrice: '10.00',
+        sellingQuantity: '6.000',
+        gstRate: '5.00',
+      ),
+    );
+    await tester.pumpWidget(MalligaiKadaiApp(authGateway: gateway));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('openBillingButton')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('addToCart-44')));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextFormField>(find.byKey(const Key('quantityInput-44-g')))
+          .initialValue,
+      '6',
+    );
+    await tester.tap(find.byKey(const Key('increaseQuantity-44')));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextFormField>(find.byKey(const Key('quantityInput-44-g')))
+          .initialValue,
+      '12',
+    );
+    await tester.tap(find.byKey(const Key('decreaseQuantity-44')));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextFormField>(find.byKey(const Key('quantityInput-44-g')))
+          .initialValue,
+      '6',
+    );
   });
 
   testWidgets('weight quantities default by unit and use the kg price once', (
@@ -1280,86 +1543,39 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       tester
-          .widget<DropdownButtonFormField<String>>(
-            find.byKey(const Key('newQuantityUnit-34')),
-          )
+          .widget<TextFormField>(find.byKey(const Key('quantityInput-34-kg')))
           .initialValue,
-      'kg',
-    );
-    expect(
-      tester
-          .widget<TextField>(find.byKey(const Key('newQuantityInput-34')))
-          .controller!
-          .text,
       '1',
     );
-    await tester.tap(find.byKey(const Key('newQuantityUnit-34')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('gm').last);
-    await tester.pumpAndSettle();
-    expect(
-      tester
-          .widget<TextField>(find.byKey(const Key('newQuantityInput-34')))
-          .controller!
-          .text,
-      '100',
-    );
-    await tester.enterText(find.byKey(const Key('newQuantityInput-34')), '200');
-    await tester.tap(find.byKey(const Key('confirmProductQuantity-34')));
-    await tester.pumpAndSettle();
     expect(
       tester.widget<Text>(find.byKey(const Key('lineTotal-34'))).data,
-      '₹16.00',
-    );
-
-    await tester.tap(find.byKey(const Key('addToCart-34')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('newQuantityUnit-34')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('gm').last);
-    await tester.pumpAndSettle();
-    expect(
-      tester
-          .widget<TextField>(find.byKey(const Key('newQuantityInput-34')))
-          .controller!
-          .text,
-      '100',
-    );
-    await tester.enterText(find.byKey(const Key('newQuantityInput-34')), '100');
-    await tester.tap(find.byKey(const Key('confirmProductQuantity-34')));
-    await tester.pumpAndSettle();
-
-    expect(
-      tester.widget<Text>(find.byKey(const Key('lineTotal-34'))).data,
-      '₹24.00',
+      '₹80.00',
     );
 
     await tester.tap(find.byKey(const Key('addToCart-34')));
     await tester.pumpAndSettle();
     expect(
       tester
-          .widget<DropdownButtonFormField<String>>(
-            find.byKey(const Key('newQuantityUnit-34')),
-          )
+          .widget<TextFormField>(find.byKey(const Key('quantityInput-34-kg')))
           .initialValue,
-      'kg',
+      '2',
     );
+
+    await tester.tap(find.byKey(const Key('addToCart-34')));
+    await tester.pumpAndSettle();
     expect(
       tester
-          .widget<TextField>(find.byKey(const Key('newQuantityInput-34')))
-          .controller!
-          .text,
-      '1',
+          .widget<TextFormField>(find.byKey(const Key('quantityInput-34-kg')))
+          .initialValue,
+      '3',
     );
-    await tester.tap(find.byKey(const Key('confirmProductQuantity-34')));
-    await tester.pumpAndSettle();
     expect(
       tester.widget<Text>(find.byKey(const Key('summary-subtotal'))).data,
-      '₹104.00',
+      '₹240.00',
     );
     await tester.tap(find.byKey(const Key('saveInvoiceButton')));
     await tester.pumpAndSettle();
-    expect(gateway.lastInvoiceItems.single.quantity, '1.300');
+    expect(gateway.lastInvoiceItems.single.quantity, '3.000');
   });
 
   testWidgets('configured selling quantity prices proportional weight sales', (
@@ -1385,7 +1601,7 @@ void main() {
         category: 'General',
         unit: 'g',
         sellingPrice: '8.00',
-        sellingQuantity: '100.000',
+        sellingQuantity: '6.000',
         gstRate: '0.00',
       ),
     );
@@ -1395,13 +1611,22 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('addToCart-42')));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const Key('newQuantityInput-42')), '250');
-    await tester.tap(find.byKey(const Key('confirmProductQuantity-42')));
+    expect(
+      tester
+          .widget<TextFormField>(find.byKey(const Key('quantityInput-42-g')))
+          .initialValue,
+      '6',
+    );
+    expect(
+      tester.widget<Text>(find.byKey(const Key('lineTotal-42'))).data,
+      '₹8.00',
+    );
+    await tester.enterText(find.byKey(const Key('quantityInput-42-g')), '250');
     await tester.pumpAndSettle();
 
     expect(
       tester.widget<Text>(find.byKey(const Key('lineTotal-42'))).data,
-      '₹20.00',
+      '₹333.33',
     );
     await tester.tap(find.byKey(const Key('saveInvoiceButton')));
     await tester.pumpAndSettle();
@@ -1431,7 +1656,7 @@ void main() {
         category: 'General',
         unit: 'ml',
         sellingPrice: '60.00',
-        sellingQuantity: '500.000',
+        sellingQuantity: '250.000',
         gstRate: '0.00',
       ),
     );
@@ -1443,17 +1668,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       tester
-          .widget<TextField>(find.byKey(const Key('newQuantityInput-43')))
-          .controller!
-          .text,
-      '100',
+          .widget<TextFormField>(find.byKey(const Key('quantityInput-43-ml')))
+          .initialValue,
+      '250',
     );
-    await tester.tap(find.byKey(const Key('newQuantityUnit-43')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('litre').last);
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const Key('newQuantityInput-43')), '1');
-    await tester.tap(find.byKey(const Key('confirmProductQuantity-43')));
+    expect(
+      tester.widget<Text>(find.byKey(const Key('lineTotal-43'))).data,
+      '₹60.00',
+    );
+    await tester.enterText(find.byKey(const Key('quantityInput-43-ml')), '500');
     await tester.pumpAndSettle();
 
     expect(
@@ -1462,7 +1685,7 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('saveInvoiceButton')));
     await tester.pumpAndSettle();
-    expect(gateway.lastInvoiceItems.single.quantity, '1000.000');
+    expect(gateway.lastInvoiceItems.single.quantity, '500.000');
   });
 
   testWidgets(
@@ -1500,9 +1723,6 @@ void main() {
       await tester.tap(find.byKey(const Key('openBillingButton')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('addToCart-32')));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byKey(const Key('newQuantityInput-32')), '1');
-      await tester.tap(find.byKey(const Key('confirmProductQuantity-32')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('manualGstAmountField')), findsNothing);
       await tester.enterText(
@@ -1567,8 +1787,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('addToCart-35')));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const Key('newQuantityInput-35')), '1.5');
-    await tester.tap(find.byKey(const Key('confirmProductQuantity-35')));
+    await tester.enterText(
+      find.byKey(const Key('quantityInput-35-packet')),
+      '1.5',
+    );
     await tester.pumpAndSettle();
     expect(
       tester.widget<Text>(find.byKey(const Key('lineTotal-35'))).data,
@@ -1617,9 +1839,6 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('addToCart-33')));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const Key('newQuantityInput-33')), '1');
-    await tester.tap(find.byKey(const Key('confirmProductQuantity-33')));
-    await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('amount-33')), '10.00');
     expect(find.byKey(const Key('manualGstAmountField')), findsNothing);
     await tester.pumpAndSettle();
@@ -1636,7 +1855,109 @@ void main() {
     );
   });
 
-  testWidgets('saved invoice preview uses the compact receipt-roll layout', (
+  testWidgets(
+    'normal and bulk invoice previews route to separate print workflows',
+    (tester) async {
+      const normalInvoice = SavedInvoice(
+        invoiceNumber: 'INV-NORMAL',
+        cashierName: 'cashier',
+        subtotal: '10.00',
+        grandTotal: '10.00',
+        createdAt: '2026-01-01T12:00:00.000Z',
+        items: [],
+        payments: [],
+        replayed: false,
+      );
+      const bulkInvoice = SavedInvoice(
+        invoiceNumber: 'BULK-TEST',
+        cashierName: 'cashier',
+        subtotal: '4660.00',
+        grandTotal: '4660.00',
+        createdAt: '2026-01-01T12:00:00.000Z',
+        invoiceType: 'bulk',
+        items: [],
+        payments: [],
+        replayed: false,
+      );
+      final printer = FakeReceiptPrinterGateway();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ReceiptPreviewScreen(
+              invoice: normalInvoice,
+              printerGateway: printer,
+              a4Invoice: false,
+              a4Preview: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('printReceiptButton')));
+      await tester.pump();
+      expect(printer.printModes, [false]);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ReceiptPreviewScreen(
+              invoice: bulkInvoice,
+              printerGateway: printer,
+              a4Invoice: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+      expect(
+        printer.builtPdfFormats,
+        contains((widthMm: 80, printableWidthMm: 72, isA4: true)),
+      );
+      await tester.tap(find.byKey(const Key('printReceiptButton')));
+      await tester.pump();
+      expect(printer.printModes, [false, true]);
+    },
+  );
+
+  test(
+    'restores both printer selections through a new gateway instance',
+    () async {
+      final preferences = _MemoryPrinterPreferences();
+      final firstGateway = WindowsReceiptPrinterGateway(
+        preferences: preferences,
+      );
+      await firstGateway.saveSettings(
+        const ReceiptPrinterSettings(
+          printerName: 'thermal-model',
+          printerUrl: 'windows:thermal',
+          paperWidthMm: 58,
+          printableWidthMm: 54,
+          a4Invoices: true,
+          a4PrinterName: 'office-model',
+          a4PrinterUrl: 'windows:a4',
+          a4Orientation: 'landscape',
+        ),
+      );
+
+      final restartedGateway = WindowsReceiptPrinterGateway(
+        preferences: preferences,
+      );
+      final settings = await restartedGateway.loadSettings();
+
+      expect(settings?.printerName, 'thermal-model');
+      expect(settings?.printerUrl, 'windows:thermal');
+      expect(settings?.paperWidthMm, 58);
+      expect(settings?.targetPrintableWidthMm, 54);
+      expect(settings?.a4PrinterName, 'office-model');
+      expect(settings?.a4PrinterUrl, 'windows:a4');
+      expect(settings?.a4Orientation, 'landscape');
+    },
+  );
+
+  testWidgets('saved retail preview is A4 while printing remains thermal', (
     tester,
   ) async {
     const invoice = SavedInvoice(
@@ -1658,7 +1979,13 @@ void main() {
     );
     await tester.pumpWidget(
       MaterialApp(
-        home: ReceiptPreviewScreen(invoice: invoice, printerGateway: printer),
+        home: Scaffold(
+          body: ReceiptPreviewScreen(
+            invoice: invoice,
+            printerGateway: printer,
+            a4Preview: true,
+          ),
+        ),
       ),
     );
     await tester.pump();
@@ -1675,14 +2002,14 @@ void main() {
     );
     final initialFormat = preview.initialPageFormat;
     expect(initialFormat, isNotNull);
-    expect(initialFormat!.width, closeTo(80 * PdfPageFormat.mm, 0.01));
-    expect(preview.pageFormats.keys, ['80 mm roll / 72.0 mm target']);
+    expect(initialFormat!.width, closeTo(PdfPageFormat.a4.width, 0.01));
+    expect(preview.pageFormats.keys, ['A4 portrait']);
     await tester.pump(const Duration(milliseconds: 500));
-    expect(
-      printer.builtPdfFormats,
-      contains((widthMm: 80, printableWidthMm: 72, isA4: false)),
-    );
-    expect(printer.printedInvoices, isEmpty);
+    expect(printer.builtPdfPreviewModes, contains(true));
+    await tester.tap(find.byKey(const Key('printReceiptButton')));
+    await tester.pump();
+    expect(printer.printModes, [false]);
+    expect(printer.printedInvoices, ['91']);
   });
 
   testWidgets('routes a cashier to the cashier home after login', (
@@ -1747,7 +2074,7 @@ void main() {
     expect(find.byKey(const Key('openSettingsButton')), findsOneWidget);
     expect(
       find.byKey(const Key('openReceiptPrinterSettingsButton')),
-      findsNothing,
+      findsOneWidget,
     );
     final storeTitle = tester.widget<Text>(
       find.byKey(const Key('mainStoreTitle')),
@@ -1771,6 +2098,50 @@ void main() {
     await tester.tap(find.byKey(const Key('saveGstSettingsButton')));
     await tester.pumpAndSettle();
     expect(gateway.gstRate, '18');
+  });
+
+  testWidgets('dashboard opens printer settings from its navigation', (
+    tester,
+  ) async {
+    final gateway = FakeAuthGateway(
+      initialUser: const AuthUser(
+        id: '1',
+        username: 'owner',
+        role: UserRole.admin,
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AdminHomeScreen(
+          user: gateway.initialUser!,
+          onLogout: () async {},
+          onCreateCashier: gateway.createCashier,
+          productGateway: gateway,
+          billingGateway: gateway,
+          receiptPrinterGateway: FakeReceiptPrinterGateway(),
+          reportsGateway: gateway,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('openReceiptPrinterSettingsButton')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Printer settings'), findsOneWidget);
+    expect(find.byKey(const Key('rollPrinterDropdown')), findsOneWidget);
+    final normalPrinterDropdown = tester
+        .widget<DropdownButtonFormField<String>>(
+          find.byKey(const Key('rollPrinterDropdown')),
+        );
+    expect(normalPrinterDropdown.decoration.labelText, 'Normal Bill Printer');
+    await tester.drag(find.byType(ListView), const Offset(0, -500));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('a4PrinterDropdown')), findsOneWidget);
+    final bulkPrinterDropdown = tester.widget<DropdownButtonFormField<String>>(
+      find.byKey(const Key('a4PrinterDropdown')),
+    );
+    expect(bulkPrinterDropdown.decoration.labelText, 'Bulk Order Printer');
   });
 
   testWidgets('dashboard adapts between desktop sidebar and mobile drawer', (

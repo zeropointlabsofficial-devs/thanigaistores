@@ -16,6 +16,7 @@ interface ProductRow {
   selling_quantity: string;
   opening_stock_quantity: string;
   stock_quantity: string;
+  hsn_code: string;
   gst_rate: string;
   created_at: Date;
   updated_at: Date;
@@ -24,7 +25,7 @@ interface ProductRow {
 const columns = `
   id, name, sku, category, unit,
   purchase_price, selling_price, mrp, selling_quantity, opening_stock_quantity,
-  stock_quantity, gst_rate, created_at, updated_at
+  stock_quantity, hsn_code, gst_rate, created_at, updated_at
 `;
 
 function toProduct(row: ProductRow): Product {
@@ -40,6 +41,7 @@ function toProduct(row: ProductRow): Product {
     sellingQuantity: row.selling_quantity,
     openingStockQuantity: row.opening_stock_quantity,
     stockQuantity: row.stock_quantity,
+    hsnCode: row.hsn_code,
     gstRate: row.gst_rate,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
@@ -75,9 +77,9 @@ export const postgresProductRepository: ProductRepository = {
         `INSERT INTO products (
            name, sku, category, unit, purchase_price, selling_price, mrp, selling_quantity,
            opening_stock_quantity,
-           stock_quantity, low_stock_threshold, gst_rate
+           stock_quantity, low_stock_threshold, hsn_code, gst_rate
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, 0, $10)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, 0, $10, $11)
          RETURNING ${columns}`,
         [
           input.name,
@@ -89,6 +91,7 @@ export const postgresProductRepository: ProductRepository = {
           input.mrp ?? null,
           input.sellingQuantity,
           input.openingStockQuantity ?? '0.000',
+          input.hsnCode ?? '',
           input.gstRate,
         ],
       );
@@ -166,7 +169,8 @@ export const postgresProductRepository: ProductRepository = {
            selling_price = $7,
            mrp = $8,
            selling_quantity = $9,
-           gst_rate = $10,
+           hsn_code = $10,
+           gst_rate = $11,
            updated_at = NOW()
          WHERE id = $1 AND is_active = TRUE
          RETURNING ${columns}`,
@@ -180,6 +184,7 @@ export const postgresProductRepository: ProductRepository = {
           input.sellingPrice,
           input.mrp ?? null,
           input.sellingQuantity,
+          input.hsnCode ?? '',
           input.gstRate,
         ],
       );

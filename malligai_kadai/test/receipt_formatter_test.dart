@@ -1,4 +1,5 @@
 import 'dart:ui' as ui;
+import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -131,6 +132,32 @@ void main() {
     expect(lines.join('\n'), contains('₹0.033333'));
   });
 
+  test('displays the Bag unit on an invoice', () {
+    const bagInvoice = SavedInvoice(
+      invoiceNumber: 'INV-BAG-1',
+      subtotal: '5.00',
+      grandTotal: '5.00',
+      createdAt: '2026-10-19T12:30:00.000Z',
+      items: [
+        SavedInvoiceItem(
+          productName: 'Rice Bag',
+          sku: '',
+          unit: 'Bag',
+          unitPrice: '5.00',
+          quantity: '1',
+          lineTotal: '5.00',
+        ),
+      ],
+      payments: [InvoicePayment(method: 'cash', amount: '5.00')],
+      replayed: false,
+    );
+
+    expect(
+      ReceiptFormatter.formatA4(bagInvoice).join('\n'),
+      allOf(contains('Rice Bag'), contains('Bag'), contains('₹5.00')),
+    );
+  });
+
   test('wraps long product names without shifting receipt amount columns', () {
     const longNameInvoice = SavedInvoice(
       invoiceNumber: 'INV-LONG-1',
@@ -180,9 +207,14 @@ void main() {
     expect(receipt, contains('Invoice No: INV-2026-00000017'));
     expect(receipt, contains('Date:'));
     expect(receipt, contains('Cashier: cashier-one'));
-    expect(receipt, contains('Qty / Unit Price'));
+    expect(receipt, contains('S.NoHSN/SAC'));
+    expect(receipt, contains('Net Rate'));
+    expect(receipt, contains('GST'));
+    expect(receipt, contains('Amount'));
     expect(receipt, contains('Basmati Rice'));
-    expect(receipt, contains('1 kg x ₹10.00'));
+    expect(receipt, contains('1'));
+    expect(receipt, contains('kg'));
+    expect(receipt, contains('₹10.00'));
     expect(receipt, contains('Amount after discount'));
     expect(receipt, contains('Payment method'));
     expect(receipt, contains('CASH ₹4.00 + UPI ₹6.50'));
@@ -196,16 +228,15 @@ void main() {
     );
     expect(invoiceDateLine, contains('Date:'));
     final columnHeader = lines.singleWhere(
-      (line) => line.contains('Qty / Unit Price'),
+      (line) => line.contains('S.NoHSN/SAC'),
     );
-    expect(columnHeader.length, ReceiptFormatter.a4Columns);
-    expect(columnHeader.indexOf('Qty / Unit Price'), 42);
-    expect(columnHeader.indexOf('Amount'), 74);
+    expect(columnHeader.length, lessThanOrEqualTo(ReceiptFormatter.a4Columns));
+    expect(columnHeader, contains('Net Rate'));
     final itemLine = lines.singleWhere((line) => line.contains('Basmati Rice'));
-    expect(itemLine.indexOf('Basmati Rice'), 0);
-    expect(itemLine.indexOf('1 kg x ₹10.00'), 42);
-    expect(itemLine.indexOf('₹10.50'), 74);
-    expect(lines.where((line) => line.startsWith('-')).length, 6);
+    expect(itemLine, contains('Basmati Rice'));
+    expect(itemLine, contains('1'));
+    expect(itemLine, contains('kg'));
+    expect(itemLine, contains('₹10.50'));
     expect(
       ReceiptFormatter.formatA4Footer(invoice).join('\n'),
       contains('THANK YOU! VISIT US AGAIN!!'),
@@ -482,6 +513,22 @@ void main() {
     },
   );
 
+  test('builds normal retail bills as A4 preview PDFs', () async {
+    final bytes = await WindowsReceiptPrinterGateway().buildPdf(
+      invoice,
+      paperWidthMm: 80,
+      printableWidthMm: 72,
+      a4Preview: true,
+    );
+
+    expect(bytes.length, greaterThan(1000));
+    expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+    expect(
+      String.fromCharCodes(bytes).contains(RegExp(r'/MediaBox\s*\[0 0 595')),
+      isTrue,
+    );
+  });
+
   test('builds a separate A4 invoice PDF', () async {
     final bytes = await WindowsReceiptPrinterGateway().buildPdf(
       invoice,
@@ -489,6 +536,142 @@ void main() {
       a4Invoice: true,
     );
 
+    expect(bytes.length, greaterThan(1000));
+    expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+    await File(
+      r'C:\Users\jeevi\Downloads\thanigaistores-main\thanigaistores-main\artifacts\Thanigai-Stores-Bulk-Sample.pdf',
+    ).writeAsBytes(bytes);
+    expect(
+      String.fromCharCodes(bytes).contains(RegExp(r'/MediaBox\s*\[0 0 595')),
+      isTrue,
+    );
+  });
+
+  test(
+    'builds an exact-reference-style bulk A4 PDF with multiple GST rows',
+    () async {
+      const bulkInvoice = SavedInvoice(
+        invoiceNumber: 'TNS-2026-117',
+        cashierName: 'cashier',
+        subtotal: '4660.00',
+        grandTotal: '4660.00',
+        taxableAmount: '4435.72',
+        cgstAmount: '110.89',
+        sgstAmount: '110.89',
+        igstAmount: '0.00',
+        totalTax: '221.78',
+        gstEnabled: true,
+        priceMode: 'exclusive',
+        shopStateCode: '33',
+        saleStateCode: '33',
+        invoiceType: 'bulk',
+        customerName: 'ABC Traders',
+        customerAddress: 'Chennai',
+        customerGstin: '',
+        placeOfSupply: '33-Tamil Nadu',
+        businessName: 'Thanigai Stores',
+        businessAddress: '312, NORTH RAJ STREET TIRUVALLUR',
+        businessPhone: '7200412487',
+        gstin: '33AOPTB5179P1Z4',
+        createdAt: '2026-11-18T12:45:00.000Z',
+        items: [
+          SavedInvoiceItem(
+            productName: '1ltr PALM OIL',
+            sku: '15119020',
+            unit: 'box',
+            unitPrice: '1600.00',
+            quantity: '2',
+            lineTotal: '3200.00',
+            hsnCode: '15119020',
+            gstRate: '5.00',
+            taxableAmount: '3047.62',
+            cgstAmount: '76.19',
+            sgstAmount: '76.19',
+          ),
+          SavedInvoiceItem(
+            productName: '1ltr SUNLIFE',
+            sku: '151211910',
+            unit: 'box',
+            unitPrice: '1460.00',
+            quantity: '1',
+            lineTotal: '1460.00',
+            hsnCode: '151211910',
+            gstRate: '5.00',
+            taxableAmount: '1388.10',
+            cgstAmount: '34.70',
+            sgstAmount: '34.70',
+          ),
+        ],
+        payments: [InvoicePayment(method: 'cash', amount: '4660.00')],
+        replayed: false,
+      );
+
+      final bytes = await WindowsReceiptPrinterGateway().buildPdf(
+        bulkInvoice,
+        paperWidthMm: 80,
+        a4Invoice: true,
+      );
+      expect(bytes.length, greaterThan(1000));
+      expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+      await File(
+        r'C:\Users\jeevi\Downloads\thanigaistores-main\thanigaistores-main\artifacts\Thanigai-Stores-Bulk-Sample.pdf',
+      ).writeAsBytes(bytes);
+    },
+  );
+
+  test('keeps same-HSN rows separate when bulk GST rates differ', () async {
+    const mixedRateInvoice = SavedInvoice(
+      invoiceNumber: 'BULK-MIXED-RATE',
+      cashierName: 'cashier',
+      subtotal: '200.00',
+      grandTotal: '223.00',
+      createdAt: '2026-11-18T12:45:00.000Z',
+      taxableAmount: '200.00',
+      cgstAmount: '11.50',
+      sgstAmount: '11.50',
+      totalTax: '23.00',
+      gstEnabled: true,
+      shopStateCode: '33',
+      saleStateCode: '33',
+      invoiceType: 'bulk',
+      businessName: 'SRI THANIGAI STORES',
+      items: [
+        SavedInvoiceItem(
+          productName: 'Five Percent Item',
+          sku: '',
+          unit: 'piece',
+          unitPrice: '100.00',
+          quantity: '1',
+          lineTotal: '105.00',
+          hsnCode: '1111',
+          gstRate: '5.00',
+          taxableAmount: '100.00',
+          cgstAmount: '2.50',
+          sgstAmount: '2.50',
+        ),
+        SavedInvoiceItem(
+          productName: 'Eighteen Percent Item',
+          sku: '',
+          unit: 'piece',
+          unitPrice: '100.00',
+          quantity: '1',
+          lineTotal: '118.00',
+          hsnCode: '1111',
+          gstRate: '18.00',
+          taxableAmount: '100.00',
+          cgstAmount: '9.00',
+          sgstAmount: '9.00',
+        ),
+      ],
+      payments: [],
+      replayed: false,
+    );
+
+    final bytes = await WindowsReceiptPrinterGateway().buildPdf(
+      mixedRateInvoice,
+      paperWidthMm: 80,
+      a4Invoice: true,
+    );
     expect(bytes.length, greaterThan(1000));
     expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
     expect(

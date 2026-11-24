@@ -72,6 +72,11 @@ class _EmptyAuthGateway implements AuthGateway {
     String discountAmount = '0.00',
     String gstAmount = '0.00',
     required List<InvoicePayment> payments,
+    String invoiceType = 'retail',
+    String customerName = '',
+    String customerAddress = '',
+    String customerGstin = '',
+    String placeOfSupply = '',
   }) async {
     throw const BillingFailure('Not authorized.');
   }

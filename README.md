@@ -35,7 +35,8 @@ On first launch, Malligai Kadai initializes a PostgreSQL 18 cluster inside the
 signed-in Windows user's profile, starts PostgreSQL as a local user process,
 and creates a new `malligai_kadai` database and non-superuser `malligai_app`
 role with cryptographically random credentials. PostgreSQL binds only to
-`127.0.0.1`; the app chooses an available port from 55432–55462. The owner does
+`127.0.0.1`; Thanigai Stores uses port 55433 and can select another available port
+from 55434–55462 only if 55433 is unavailable. The owner does
 not enter database host, port, username, or password. Generated settings are
 protected with the signed-in user's Windows DPAPI. Database credentials and
 JWT/setup secrets are not hardcoded or written to logs.

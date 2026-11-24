@@ -283,7 +283,7 @@ class LocalBackendSettings {
         value['database'] != 'thanigai_stores' ||
         value['username'] != 'thanigai_app' ||
         (value['port'] as num) != (value['port'] as num).toInt() ||
-        (value['port'] as num) < 55432 ||
+        (value['port'] as num) < 55433 ||
         (value['port'] as num) > 55462) {
       throw const BackendStartFailure(
         'Saved database settings do not identify the bundled Thanigai Stores database. Repair the installation.',

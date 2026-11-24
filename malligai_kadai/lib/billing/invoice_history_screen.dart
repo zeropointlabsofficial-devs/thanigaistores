@@ -73,6 +73,8 @@ class _InvoiceHistoryScreenState extends State<InvoiceHistoryScreen> {
         builder: (_) => ReceiptPreviewScreen(
           invoice: invoice,
           printerGateway: widget.printerGateway,
+          a4Invoice: invoice.invoiceType == 'bulk',
+          a4Preview: true,
         ),
       );
     } on BillingFailure catch (error) {

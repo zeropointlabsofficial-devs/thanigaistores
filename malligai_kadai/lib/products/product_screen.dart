@@ -1069,6 +1069,8 @@ class _ProductEditorDialogState extends State<_ProductEditorDialog> {
       'openingStockQuantity': TextEditingController(
         text: product?.openingStockQuantity ?? '0',
       ),
+      'hsnCode': TextEditingController(text: product?.hsnCode ?? ''),
+      'gstRate': TextEditingController(text: product?.gstRate ?? '0'),
     };
     _unit = product?.unit ?? 'g';
     if (product == null) {
@@ -1127,7 +1129,8 @@ class _ProductEditorDialogState extends State<_ProductEditorDialog> {
         mrp: _controllers['mrp']!.text,
         sellingQuantity: _controllers['sellingQuantity']!.text,
         openingStockQuantity: _controllers['openingStockQuantity']!.text,
-        gstRate: widget.product?.gstRate ?? '0',
+        hsnCode: _controllers['hsnCode']!.text,
+        gstRate: _controllers['gstRate']!.text,
         category: widget.product?.category ?? 'General',
         sku: widget.product?.sku ?? '',
       ),

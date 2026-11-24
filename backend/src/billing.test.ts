@@ -444,6 +444,41 @@ describe('billing API', () => {
       equal(parsed.items[0].quantity, quantity);
     }
   });
+
+  it('accepts per-item GST and HSN overrides only for bulk invoices', () => {
+    const parsed = validateInvoiceRequest({
+      ...validBody,
+      invoiceType: 'bulk',
+      items: [
+        {
+          productId: '10',
+          quantity: '1',
+          hsnCode: ' ab123 ',
+          gstRate: '5.5',
+        },
+      ],
+    });
+    equal(parsed.items[0].hsnCode, 'AB123');
+    equal(parsed.items[0].gstRate, '5.50');
+
+    throws(
+      () =>
+        validateInvoiceRequest({
+          ...validBody,
+          invoiceType: 'bulk',
+          items: [{ productId: '10', quantity: '1', gstRate: '100.01' }],
+        }),
+      /GST rate must be between 0 and 100 percent/,
+    );
+    throws(
+      () =>
+        validateInvoiceRequest({
+          ...validBody,
+          items: [{ productId: '10', quantity: '1', gstRate: '5' }],
+        }),
+      /only supported on bulk invoices/,
+    );
+  });
 });
 
 describe('decimal-safe billing calculations', () => {

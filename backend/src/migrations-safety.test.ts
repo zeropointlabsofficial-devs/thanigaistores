@@ -43,3 +43,40 @@ it('removes the legacy product unit constraint while allowing all supported unit
     /purchase_unit IN \([^)]*'boxes'[^)]*'saram'[^)]*\)/i,
   );
 });
+
+it('allows Bag for product and stock batch units without changing existing rows', async () => {
+  const migration = await readFile(
+    path.resolve(__dirname, '../migrations/020_add_bag_product_unit.sql'),
+    'utf8',
+  );
+
+  match(migration, /unit IN \([^)]*'Bag'\)/i);
+  match(migration, /purchase_unit IN \([^)]*'Bag'\)/i);
+});
+
+it('allows bottle, box, and pai product and stock batch units', async () => {
+  const migration = await readFile(
+    path.resolve(__dirname, '../migrations/021_add_product_units.sql'),
+    'utf8',
+  );
+
+  for (const unit of ['bottle', 'box', 'pai']) {
+    match(migration, new RegExp(`unit IN \\([^)]*'${unit}'[^)]*\\)`, 'i'));
+    match(
+      migration,
+      new RegExp(`purchase_unit IN \\([^)]*'${unit}'[^)]*\\)`, 'i'),
+    );
+  }
+});
+
+it('adds HSN and bulk invoice snapshots without changing existing records', async () => {
+  const migration = await readFile(
+    path.resolve(__dirname, '../migrations/022_hsn_bulk_invoice_support.sql'),
+    'utf8',
+  );
+
+  match(migration, /ADD COLUMN IF NOT EXISTS hsn_code/i);
+  match(migration, /ADD COLUMN IF NOT EXISTS hsn_code_snapshot/i);
+  match(migration, /ADD COLUMN IF NOT EXISTS invoice_type/i);
+  match(migration, /CHECK \(invoice_type IN \('retail', 'bulk'\)\)/i);
+});

@@ -7,6 +7,7 @@ import 'billing_gateway.dart';
 import 'receipt_preview_screen.dart';
 import 'receipt_printer.dart';
 import '../products/product_gateway.dart';
+import 'bulk_order_screen.dart';
 
 class BillingScreen extends StatefulWidget {
   const BillingScreen({
@@ -54,25 +55,29 @@ String _displayQuantity(_CartLine line) {
   if (line.product.unit == 'kg' && line.selectedUnit == 'g') {
     quantityMilli *= BigInt.from(1000);
   } else if (line.product.unit == 'g' && line.selectedUnit == 'kg') {
-    quantityMilli ~/= BigInt.from(1000);
+    final kgMilli = quantityMilli;
+    final whole = kgMilli ~/ BigInt.from(1000000);
+    final fraction = (kgMilli % BigInt.from(1000000)) ~/ BigInt.from(1000);
+    return '$whole.${fraction.toString().padLeft(3, '0')}'.replaceFirst(
+      RegExp(r'\.?0+$'),
+      '',
+    );
   } else if (line.product.unit == 'litre' && line.selectedUnit == 'ml') {
     quantityMilli *= BigInt.from(1000);
   } else if (line.product.unit == 'ml' && line.selectedUnit == 'litre') {
-    quantityMilli ~/= BigInt.from(1000);
+    final litreMilli = quantityMilli;
+    final whole = litreMilli ~/ BigInt.from(1000000);
+    final fraction = (litreMilli % BigInt.from(1000000)) ~/ BigInt.from(1000);
+    return '$whole.${fraction.toString().padLeft(3, '0')}'.replaceFirst(
+      RegExp(r'\.?0+$'),
+      '',
+    );
   }
   final value =
       '${quantityMilli ~/ BigInt.from(1000)}.'
       '${(quantityMilli % BigInt.from(1000)).toString().padLeft(3, '0')}';
   return value.replaceFirst(RegExp(r'\.?0+$'), '');
 }
-
-List<String> _quantityUnits(ProductItem product) => switch (product.unit) {
-  'kg' => const ['kg', 'g'],
-  'g' => const ['g', 'kg'],
-  'litre' => const ['litre', 'ml'],
-  'ml' => const ['ml', 'litre'],
-  _ => [product.unit],
-};
 
 class _CartLine {
   const _CartLine(
@@ -94,132 +99,6 @@ class _CartLine {
 
   _CartLine withQuantityUnit(String value) =>
       _CartLine(product, quantityMilli, unitPrice, quantityUnit: value);
-}
-
-class _QuantityEntry {
-  const _QuantityEntry(this.unit, this.quantityMilli);
-
-  final String unit;
-  final int quantityMilli;
-}
-
-class _ProductQuantityDialog extends StatefulWidget {
-  const _ProductQuantityDialog({required this.product});
-
-  final ProductItem product;
-
-  @override
-  State<_ProductQuantityDialog> createState() => _ProductQuantityDialogState();
-}
-
-class _ProductQuantityDialogState extends State<_ProductQuantityDialog> {
-  late String? _selectedUnit = widget.product.unit;
-  late final TextEditingController _quantityController = TextEditingController(
-    text: _selectedUnit == 'g' || _selectedUnit == 'ml' ? '100' : '1',
-  );
-  String? _error;
-
-  @override
-  void dispose() {
-    _quantityController.dispose();
-    super.dispose();
-  }
-
-  void _changeUnit(String? unit) {
-    if (unit == null) return;
-    setState(() {
-      _selectedUnit = unit;
-      _quantityController.text = unit == 'g' || unit == 'ml' ? '100' : '1';
-      _error = null;
-    });
-  }
-
-  void _addToBill() {
-    final unit = _selectedUnit;
-    if (unit == null) {
-      setState(() => _error = 'Choose a unit and enter a valid quantity.');
-      return;
-    }
-    final parsed = _parseQuantityInput(
-      _quantityController.text,
-      widget.product.unit,
-      unit,
-    );
-    if (parsed == null ||
-        parsed <= BigInt.zero ||
-        parsed > BigInt.from(999999999999)) {
-      setState(() => _error = 'Choose a unit and enter a valid quantity.');
-      return;
-    }
-    Navigator.pop(context, _QuantityEntry(unit, parsed.toInt()));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final requiresUnit =
-        widget.product.unit == 'kg' ||
-        widget.product.unit == 'g' ||
-        widget.product.unit == 'litre' ||
-        widget.product.unit == 'ml';
-    return AlertDialog(
-      title: Text('Enter ${widget.product.name} quantity'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (requiresUnit) ...[
-            DropdownButtonFormField<String>(
-              key: Key('newQuantityUnit-${widget.product.id}'),
-              initialValue: _selectedUnit,
-              decoration: const InputDecoration(
-                labelText: 'Choose unit',
-                border: OutlineInputBorder(),
-              ),
-              items: _quantityUnits(widget.product)
-                  .map(
-                    (unit) => DropdownMenuItem(
-                      value: unit,
-                      child: Text(displayProductUnit(unit)),
-                    ),
-                  )
-                  .toList(growable: false),
-              onChanged: _changeUnit,
-            ),
-            const SizedBox(height: 12),
-          ],
-          TextField(
-            key: Key('newQuantityInput-${widget.product.id}'),
-            autofocus: true,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            controller: _quantityController,
-            decoration: InputDecoration(
-              labelText:
-                  'Quantity${_selectedUnit == null ? '' : ' (${displayProductUnit(_selectedUnit!)})'}',
-              border: const OutlineInputBorder(),
-            ),
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              _error!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-          ],
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          key: Key('confirmProductQuantity-${widget.product.id}'),
-          onPressed: _addToBill,
-          child: const Text('Add to bill'),
-        ),
-      ],
-    );
-  }
 }
 
 class _BillingScreenState extends State<BillingScreen> {
@@ -415,20 +294,38 @@ class _BillingScreenState extends State<BillingScreen> {
     return '${milli ~/ 1000}.${(milli % 1000).toString().padLeft(3, '0')}';
   }
 
-  Future<void> _requestProductQuantity(ProductItem product) async {
-    final entry = await showDialog<_QuantityEntry>(
-      context: context,
-      builder: (_) => _ProductQuantityDialog(product: product),
-    );
-    if (entry == null || !mounted) return;
+  void _requestProductQuantity(ProductItem product) {
+    final configuredQuantityMilli = _tryQuantityMilli(product.sellingQuantity);
+    if (configuredQuantityMilli == null ||
+        configuredQuantityMilli <= BigInt.zero ||
+        configuredQuantityMilli > BigInt.from(999999999999)) {
+      setState(
+        () => _billingError =
+            'This product has an invalid configured selling quantity.',
+      );
+      return;
+    }
     final existing = _cart[product.id];
     setState(() {
       _cart[product.id] = _CartLine(
         product,
-        (existing?.quantityMilli ?? 0) + entry.quantityMilli,
+        (existing?.quantityMilli ?? 0) + configuredQuantityMilli.toInt(),
         existing?.unitPrice ?? product.sellingPrice,
-        quantityUnit: entry.unit,
+        quantityUnit: existing?.quantityUnit,
       );
+      _pendingIdempotencyKey = null;
+      _billingError = null;
+    });
+  }
+
+  void _changeCartQuantity(_CartLine line, int direction) {
+    final configured = _tryQuantityMilli(line.product.sellingQuantity);
+    if (configured == null || configured <= BigInt.zero) return;
+    final next = line.quantityMilli + (direction * configured.toInt());
+    if (next <= 0) return;
+    setState(() {
+      _cart[line.product.id] = line.withQuantity(next);
+      _invalidQuantityIds.remove(line.product.id);
       _pendingIdempotencyKey = null;
       _billingError = null;
     });
@@ -569,6 +466,7 @@ class _BillingScreenState extends State<BillingScreen> {
           builder: (_) => ReceiptPreviewScreen(
             invoice: invoice,
             printerGateway: widget.receiptPrinterGateway,
+            a4Preview: true,
           ),
         );
       } else if (action == 'print') {
@@ -678,6 +576,22 @@ class _BillingScreenState extends State<BillingScreen> {
       appBar: AppBar(
         title: const Text('Billing & Cart'),
         actions: [
+          TextButton.icon(
+            key: const Key('bulkOrderButton'),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => BulkOrderScreen(
+                    productGateway: widget.productGateway,
+                    billingGateway: widget.billingGateway,
+                    receiptPrinterGateway: widget.receiptPrinterGateway,
+                  ),
+                ),
+              );
+            },
+            icon: const Icon(Icons.receipt_long_rounded),
+            label: const Text('Bulk Order'),
+          ),
           if (_cart.isNotEmpty)
             TextButton.icon(
               key: const Key('clearCartButton'),
@@ -961,8 +875,7 @@ class _BillingScreenState extends State<BillingScreen> {
                     decimal: true,
                   ),
                   decoration: InputDecoration(
-                    labelText:
-                        'Price per ${formatSellingQuantity(product.sellingQuantity)} ${displayProductUnit(product.unit)}',
+                    labelText: 'Price',
                     prefixText: '₹',
                     isDense: true,
                     border: OutlineInputBorder(),
@@ -993,41 +906,28 @@ class _BillingScreenState extends State<BillingScreen> {
             children: [
               const Text('Quantity'),
               const SizedBox(width: 8),
-              DropdownButton<String>(
-                key: Key('quantityUnit-${product.id}'),
-                value: line.selectedUnit,
-                items: _quantityUnits(product)
-                    .map(
-                      (unit) => DropdownMenuItem(
-                        value: unit,
-                        child: Text(displayProductUnit(unit)),
-                      ),
-                    )
-                    .toList(growable: false),
-                onChanged: _isSaving
+              IconButton(
+                key: Key('decreaseQuantity-${product.id}'),
+                tooltip: 'Decrease quantity',
+                onPressed: _isSaving
                     ? null
-                    : (unit) {
-                        if (unit == null) return;
-                        setState(() {
-                          _cart[product.id] = line.withQuantityUnit(unit);
-                          _invalidQuantityIds.remove(product.id);
-                          _billingError = null;
-                          _pendingIdempotencyKey = null;
-                        });
-                      },
+                    : () => _changeCartQuantity(line, -1),
+                icon: const Icon(Icons.remove_circle_outline),
               ),
-              const SizedBox(width: 8),
               SizedBox(
                 width: 92,
                 child: TextFormField(
                   key: Key('quantityInput-${product.id}-${line.selectedUnit}'),
-                  initialValue: _displayQuantity(line),
+                  controller: TextEditingController(
+                    text: _displayQuantity(line),
+                  ),
                   enabled: !_isSaving,
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
                   decoration: InputDecoration(
-                    labelText: displayProductUnit(line.selectedUnit),
+                    labelText: 'Quantity',
+                    suffixText: displayProductUnit(line.selectedUnit),
                     isDense: true,
                     border: const OutlineInputBorder(),
                   ),
@@ -1053,6 +953,14 @@ class _BillingScreenState extends State<BillingScreen> {
                     });
                   },
                 ),
+              ),
+              IconButton(
+                key: Key('increaseQuantity-${product.id}'),
+                tooltip: 'Increase quantity',
+                onPressed: _isSaving
+                    ? null
+                    : () => _changeCartQuantity(line, 1),
+                icon: const Icon(Icons.add_circle_outline),
               ),
               const Spacer(),
               Text(

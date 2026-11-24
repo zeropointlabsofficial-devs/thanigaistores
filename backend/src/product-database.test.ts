@@ -42,6 +42,7 @@ before(async () => {
       '017_product_mrp.sql',
       '018_product_units_boxes_saram.sql',
       '019_fix_legacy_product_unit_constraint.sql',
+      '020_add_bag_product_unit.sql',
     ]) {
       const migration = await readFile(
         path.resolve(__dirname, `../migrations/${file}`),
@@ -153,6 +154,28 @@ it(
     );
     equal(batch.rows[0]?.purchase_unit, 'boxes');
 
+  },
+);
+
+it(
+  'creates products and opening stock using the Bag unit',
+  { skip: !hasDatabaseConfig },
+  async () => {
+    const created = await postgresProductRepository.create({
+      ...input,
+      name: 'TEST ONLY - Product Bag unit',
+      sku: `TEST-BAG-${randomUUID()}`,
+      unit: 'Bag',
+      openingStockQuantity: '2.000',
+    });
+    openingStockIds.push(created.id);
+    equal(created.unit, 'Bag');
+
+    const batch = await getDatabasePool().query<{ purchase_unit: string }>(
+      'SELECT purchase_unit FROM stock_batches WHERE product_id = $1',
+      [created.id],
+    );
+    equal(batch.rows[0]?.purchase_unit, 'Bag');
   },
 );
 

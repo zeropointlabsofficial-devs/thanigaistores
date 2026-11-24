@@ -36,6 +36,7 @@ export function validateInvoiceRequest(
   if (gstAmount !== '0.00') {
     throw new HttpError(400, 'GST is calculated from the saved Settings rate.');
   }
+  const invoiceType = body.invoiceType === 'bulk' ? 'bulk' : 'retail';
 
   if (!Array.isArray(body.payments) || body.payments.length === 0 || body.payments.length > 3) {
     throw new HttpError(400, 'Provide one payment method or a split of up to three methods.');
@@ -124,10 +125,43 @@ export function validateInvoiceRequest(
       unitPrice = centsToMoney(priceToCents(value.unitPrice));
     }
 
+    let hsnCode: string | undefined;
+    let gstRate: string | undefined;
+    if (value.hsnCode !== undefined || value.gstRate !== undefined) {
+      if (invoiceType !== 'bulk') {
+        throw new HttpError(
+          400,
+          'Per-item HSN and GST values are only supported on bulk invoices.',
+        );
+      }
+    }
+    if (value.hsnCode !== undefined) {
+      if (
+        typeof value.hsnCode !== 'string' ||
+        value.hsnCode.trim().length > 20 ||
+        !/^[A-Za-z0-9]*$/.test(value.hsnCode.trim())
+      ) {
+        throw new HttpError(400, 'HSN code must contain at most 20 letters or digits.');
+      }
+      hsnCode = value.hsnCode.trim().toUpperCase();
+    }
+    if (value.gstRate !== undefined) {
+      if (
+        typeof value.gstRate !== 'string' ||
+        !/^\d+(?:\.\d{0,2})?$/.test(value.gstRate) ||
+        priceToCents(value.gstRate) > 10000n
+      ) {
+        throw new HttpError(400, 'GST rate must be between 0 and 100 percent.');
+      }
+      gstRate = centsToMoney(priceToCents(value.gstRate));
+    }
+
     return {
       productId: value.productId,
       quantity: milliToQuantity(quantityMilli),
       ...(unitPrice === undefined ? {} : { unitPrice }),
+      ...(hsnCode === undefined ? {} : { hsnCode }),
+      ...(gstRate === undefined ? {} : { gstRate }),
     };
   });
 
@@ -138,6 +172,23 @@ export function validateInvoiceRequest(
     discountAmount,
     gstAmount,
     payments,
+    invoiceType,
+    customerName:
+      typeof body.customerName === 'string'
+        ? body.customerName.trim().slice(0, 160)
+        : '',
+    customerAddress:
+      typeof body.customerAddress === 'string'
+        ? body.customerAddress.trim().slice(0, 1000)
+        : '',
+    customerGstin:
+      typeof body.customerGstin === 'string'
+        ? body.customerGstin.trim().toUpperCase().slice(0, 15)
+        : '',
+    placeOfSupply:
+      typeof body.placeOfSupply === 'string'
+        ? body.placeOfSupply.trim().slice(0, 160)
+        : '',
   };
 }
 

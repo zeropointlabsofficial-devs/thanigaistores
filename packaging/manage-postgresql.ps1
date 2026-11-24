@@ -151,7 +151,8 @@ function Test-ValidSettings {
     $Settings.database -eq $databaseName -and
     $Settings.username -eq $applicationRole -and
     $Settings.port -is [ValueType] -and
-    [int]$Settings.port -ge 55432 -and [int]$Settings.port -le 55462 -and
+    ([int]$Settings.port -eq 55432 -or
+     ([int]$Settings.port -ge 55433 -and [int]$Settings.port -le 55462)) -and
     $Settings.password -match '^[0-9a-f]{96}$' -and
     $Settings.postgresPassword -match '^[0-9a-f]{96}$' -and
     $Settings.jwtSecret -match '^[0-9a-f]{96}$' -and
@@ -170,7 +171,7 @@ function Move-UnreadableSettingsToRecovery {
 }
 
 function Get-FreeDatabasePort {
-  foreach ($port in 55432..55462) {
+  foreach ($port in 55433..55462) {
     $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $port)
     try {
       $listener.Start()
@@ -181,7 +182,7 @@ function Get-FreeDatabasePort {
       $listener.Stop()
     }
   }
-  throw 'No free local PostgreSQL port was found in the reserved range 55432-55462.'
+  throw 'No free local PostgreSQL port was found in the reserved range 55433-55462.'
 }
 
 function Save-NativeOutput {
@@ -551,6 +552,25 @@ function Start-Database {
     try {
       $candidateSettings = Read-ProtectedSettings -Path $settingsPath
       if (Test-ValidSettings -Settings $candidateSettings) {
+        if ([int]$candidateSettings.port -eq 55432) {
+          Write-SetupLog 'Migrating the existing Thanigai Stores PostgreSQL port from 55432 to 55433.'
+          Stop-LocalPostgres
+          $candidateSettings = [ordered]@{
+            host = [string]$candidateSettings.host
+            port = 55433
+            database = [string]$candidateSettings.database
+            username = [string]$candidateSettings.username
+            password = [string]$candidateSettings.password
+            postgresPassword = [string]$candidateSettings.postgresPassword
+            jwtSecret = [string]$candidateSettings.jwtSecret
+            initialSetupToken = [string]$candidateSettings.initialSetupToken
+          }
+          Write-ProtectedSettings -Path $bootstrapPath -Settings $candidateSettings
+          if (Test-Path -LiteralPath $pendingPath -PathType Leaf) {
+            Remove-Item -LiteralPath $pendingPath -Force
+          }
+          Write-SetupLog 'Preserved the existing Thanigai Stores data directory and database credentials while updating only the port.'
+        }
         $settings = $candidateSettings
         $hasFinalSettings = [string]::Equals(
           $settingsPath,

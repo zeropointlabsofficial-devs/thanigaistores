@@ -43,6 +43,11 @@ interface InvoiceRow {
   sgst_amount: string;
   igst_amount: string;
   total_tax: string;
+  invoice_type: 'retail' | 'bulk';
+  customer_name_snapshot: string;
+  customer_address_snapshot: string;
+  customer_gstin_snapshot: string;
+  place_of_supply_snapshot: string;
   created_at: Date;
 }
 
@@ -61,6 +66,7 @@ interface InvoiceItemRow {
   cgst_amount: string;
   sgst_amount: string;
   igst_amount: string;
+  hsn_code_snapshot: string;
 }
 
 interface LockedProductRow {
@@ -70,6 +76,8 @@ interface LockedProductRow {
   unit: string;
   selling_price: string;
   selling_quantity: string;
+  gst_rate: string;
+  hsn_code: string;
   is_active: boolean;
 }
 
@@ -97,7 +105,9 @@ async function loadInvoice(client: PoolClient, id: string): Promise<Invoice> {
             gst_enabled_snapshot, price_mode_snapshot, shop_state_code_snapshot,
             sale_state_code_snapshot, business_name_snapshot,
             business_address_snapshot, business_phone_snapshot, gstin_snapshot, taxable_amount, cgst_amount, sgst_amount,
-            igst_amount, total_tax, created_at
+            igst_amount, total_tax, invoice_type,
+            customer_name_snapshot, customer_address_snapshot,
+            customer_gstin_snapshot, place_of_supply_snapshot, created_at
      FROM invoices WHERE id = $1`,
     [id],
   );
@@ -107,7 +117,7 @@ async function loadInvoice(client: PoolClient, id: string): Promise<Invoice> {
   const items = await client.query<InvoiceItemRow>(
     `SELECT id, product_id, product_name_snapshot, sku_snapshot, unit_snapshot,
             unit_price, quantity, line_total, gst_rate_snapshot, taxable_amount,
-            cgst_amount, sgst_amount, igst_amount
+            cgst_amount, sgst_amount, igst_amount, hsn_code_snapshot
      FROM invoice_items WHERE invoice_id = $1 ORDER BY id`,
     [id],
   );
@@ -145,6 +155,11 @@ function toInvoice(
     sgstAmount: row.sgst_amount,
     igstAmount: row.igst_amount,
     totalTax: row.total_tax,
+    invoiceType: row.invoice_type,
+    customerName: row.customer_name_snapshot,
+    customerAddress: row.customer_address_snapshot,
+    customerGstin: row.customer_gstin_snapshot,
+    placeOfSupply: row.place_of_supply_snapshot,
     createdAt: row.created_at.toISOString(),
     items: items.map(
       (item): InvoiceItem => ({
@@ -161,6 +176,7 @@ function toInvoice(
         cgstAmount: item.cgst_amount,
         sgstAmount: item.sgst_amount,
         igstAmount: item.igst_amount,
+        hsnCode: item.hsn_code_snapshot,
       }),
     ),
     payments,
@@ -300,7 +316,9 @@ export class PostgresBillingRepository implements BillingRepository {
                 price_mode_snapshot, shop_state_code_snapshot,
                 sale_state_code_snapshot, business_name_snapshot,
                 business_address_snapshot, business_phone_snapshot, gstin_snapshot, taxable_amount, cgst_amount,
-                sgst_amount, igst_amount, total_tax, created_at
+                sgst_amount, igst_amount, total_tax, invoice_type,
+                customer_name_snapshot, customer_address_snapshot,
+                customer_gstin_snapshot, place_of_supply_snapshot, created_at
          FROM invoices
          WHERE voided_at IS NULL
          ORDER BY created_at DESC, id DESC LIMIT $1`,
@@ -467,6 +485,8 @@ export class PostgresBillingRepository implements BillingRepository {
           payments: [...request.payments].sort((left, right) =>
             left.method.localeCompare(right.method),
           ),
+          invoiceType: request.invoiceType ?? 'retail',
+          customerName: request.customerName ?? '',
         }),
       )
       .digest('hex');
@@ -525,7 +545,7 @@ export class PostgresBillingRepository implements BillingRepository {
       const interstate = request.saleStateCode !== settings.stateCode;
       const ids = request.items.map((item) => item.productId);
       const products = await client.query<LockedProductRow>(
-        `SELECT id, name, sku, unit, selling_price, selling_quantity, is_active
+        `SELECT id, name, sku, unit, selling_price, selling_quantity, gst_rate, hsn_code, is_active
          FROM products WHERE id = ANY($1::bigint[]) ORDER BY id FOR UPDATE`,
         [ids],
       );
@@ -550,12 +570,20 @@ export class PostgresBillingRepository implements BillingRepository {
           item.quantity,
           product.selling_quantity,
         );
+        const gstRate =
+          request.invoiceType === 'bulk'
+            ? item.gstRate ?? product.gst_rate
+            : product.gst_rate;
+        const hsnCode =
+          request.invoiceType === 'bulk'
+            ? item.hsnCode ?? product.hsn_code
+            : product.hsn_code;
         const unitPrice = microsToUnitPrice(
           unitPriceMicros(configuredPrice, product.selling_quantity),
         );
         const tax = calculateItemTax(
           subtotalCents,
-          settings.gstRate,
+          gstRate,
           settings.gstEnabled,
           settings.priceMode === 'inclusive',
           interstate,
@@ -565,6 +593,8 @@ export class PostgresBillingRepository implements BillingRepository {
         }
         return {
           product,
+          gstRate,
+          hsnCode,
           quantity: item.quantity,
           unitPrice,
           subtotalCents,
@@ -613,44 +643,26 @@ export class PostgresBillingRepository implements BillingRepository {
         throw new HttpError(400, 'Discount cannot exceed the subtotal.');
       }
       const amountAfterDiscountCents = subtotalCents - discountCents;
-      const gstRateHundredths = settings.gstEnabled
-        ? priceToCents(settings.gstRate)
-        : 0n;
       const inclusive = settings.priceMode === 'inclusive';
-      const gstCents =
-        gstRateHundredths === 0n
-          ? 0n
-          : inclusive
-            ? amountAfterDiscountCents -
-              (amountAfterDiscountCents * 10000n +
-                (10000n + gstRateHundredths) / 2n) /
-                (10000n + gstRateHundredths)
-            : (amountAfterDiscountCents * gstRateHundredths + 5000n) /
-              10000n;
-      const taxableCents = inclusive
-        ? amountAfterDiscountCents - gstCents
-        : amountAfterDiscountCents;
       const discountShares = distributeCents(
         discountCents,
         snapshots.map((item) => item.subtotalCents),
       );
-      const gstShares = distributeCents(
-        gstCents,
-        snapshots.map((item) => item.subtotalCents),
-      );
+      let taxableCents = 0n;
+      let gstCents = 0n;
       for (let index = 0; index < snapshots.length; index += 1) {
         const item = snapshots[index]!;
-        const itemGst = gstShares[index]!;
         const itemAfterDiscount = item.subtotalCents - discountShares[index]!;
-        const itemTaxable = inclusive ? itemAfterDiscount - itemGst : itemAfterDiscount;
-        item.tax.taxableCents = itemTaxable;
-        item.tax.taxCents = itemGst;
-        item.tax.cgstCents = interstate ? 0n : (itemGst + 1n) / 2n;
-        item.tax.sgstCents = interstate ? 0n : itemGst - item.tax.cgstCents;
-        item.tax.igstCents = interstate ? itemGst : 0n;
-        item.tax.lineTotalCents = inclusive
-          ? itemAfterDiscount
-          : itemTaxable + itemGst;
+        const recalculated = calculateItemTax(
+          itemAfterDiscount,
+          item.gstRate,
+          settings.gstEnabled,
+          inclusive,
+          interstate,
+        );
+        item.tax = recalculated;
+        taxableCents += recalculated.taxableCents;
+        gstCents += recalculated.taxCents;
       }
       const cgstCents = interstate ? 0n : (gstCents + 1n) / 2n;
       const sgstCents = interstate ? 0n : gstCents - cgstCents;
@@ -680,13 +692,16 @@ export class PostgresBillingRepository implements BillingRepository {
            request_hash, gst_enabled_snapshot, price_mode_snapshot,
            shop_state_code_snapshot, sale_state_code_snapshot, taxable_amount,
            business_name_snapshot, business_address_snapshot, business_phone_snapshot, gstin_snapshot,
-           cgst_amount, sgst_amount, igst_amount, total_tax
+           cgst_amount, sgst_amount, igst_amount, total_tax,
+           invoice_type, customer_name_snapshot, customer_address_snapshot,
+           customer_gstin_snapshot, place_of_supply_snapshot
          )
          VALUES (
-           'INV-' || to_char(CURRENT_DATE, 'YYYY') || '-' ||
+           CASE WHEN $21 = 'bulk' THEN 'BULK-' ELSE 'INV-' END ||
+             to_char(CURRENT_DATE, 'YYYY') || '-' ||
              LPAD(nextval('invoice_number_seq')::text, 8, '0'),
            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-           $15, $16, $17, $18, $19, $20
+           $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25
          )
          RETURNING id, invoice_number, created_by, cashier_name_snapshot,
            subtotal, discount_amount, grand_total,
@@ -715,6 +730,11 @@ export class PostgresBillingRepository implements BillingRepository {
           centsToMoney(sgstCents),
           centsToMoney(igstCents),
           centsToMoney(totalTaxCents),
+          request.invoiceType ?? 'retail',
+          request.customerName ?? '',
+          request.customerAddress ?? '',
+          request.customerGstin ?? '',
+          request.placeOfSupply ?? '',
         ],
       );
       const invoiceRow = invoiceResult.rows[0];
@@ -725,8 +745,8 @@ export class PostgresBillingRepository implements BillingRepository {
           `INSERT INTO invoice_items (
              invoice_id, product_id, product_name_snapshot, sku_snapshot, unit_snapshot,
              unit_price, quantity, line_total, gst_rate_snapshot, taxable_amount,
-             cgst_amount, sgst_amount, igst_amount
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+             cgst_amount, sgst_amount, igst_amount, hsn_code_snapshot
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
           [
             invoiceRow.id,
             item.product.id,
@@ -736,11 +756,12 @@ export class PostgresBillingRepository implements BillingRepository {
             item.unitPrice,
             item.quantity,
             centsToMoney(item.subtotalCents),
-            settings.gstRate,
+            item.gstRate,
             centsToMoney(item.tax.taxableCents),
             centsToMoney(item.tax.cgstCents),
             centsToMoney(item.tax.sgstCents),
             centsToMoney(item.tax.igstCents),
+            item.hsnCode,
           ],
         );
       }

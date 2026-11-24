@@ -2,6 +2,8 @@ export interface RequestedInvoiceItem {
   productId: string;
   quantity: string;
   unitPrice?: string;
+  hsnCode?: string;
+  gstRate?: string;
 }
 
 export type PaymentMethod = 'cash' | 'upi' | 'card';
@@ -19,6 +21,11 @@ export interface CreateInvoiceRequest {
   discountAmount: string;
   gstAmount: string;
   payments: PaymentInput[];
+  invoiceType?: 'retail' | 'bulk';
+  customerName?: string;
+  customerAddress?: string;
+  customerGstin?: string;
+  placeOfSupply?: string;
 }
 
 export interface GstSettings {
@@ -47,6 +54,7 @@ export interface InvoiceItem {
   cgstAmount: string;
   sgstAmount: string;
   igstAmount: string;
+  hsnCode?: string;
 }
 
 export interface Invoice {
@@ -73,6 +81,11 @@ export interface Invoice {
   createdAt: string;
   items: InvoiceItem[];
   payments: PaymentInput[];
+  invoiceType?: 'retail' | 'bulk';
+  customerName?: string;
+  customerAddress?: string;
+  customerGstin?: string;
+  placeOfSupply?: string;
 }
 
 export interface BillingRepository {
